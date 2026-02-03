@@ -121,6 +121,18 @@ function buildVolumeMounts(group: RegisteredGroup, isMain: boolean): VolumeMount
   // Only expose specific auth variables needed by Claude Code, not the entire .env
   const envDir = path.join(DATA_DIR, 'env');
   fs.mkdirSync(envDir, { recursive: true });
+
+  const allowedVars = [
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'ANTHROPIC_API_KEY',
+    'CLAUDE_CODE_EULA_ACCEPTED',
+    'CLAUDE_CODE_SKIP_PERMISSION_CHECKS'
+  ];
+
+  // Map to store final values, prioritizing process.env then .env file
+  const envMap = new Map<string, string>();
+
+  // 1. Load from .env file if it exists
   const envFile = path.join(projectRoot, '.env');
   if (fs.existsSync(envFile)) {
     const envContent = fs.readFileSync(envFile, 'utf-8');
@@ -138,14 +150,24 @@ function buildVolumeMounts(group: RegisteredGroup, isMain: boolean): VolumeMount
         return allowedVars.some(v => trimmed.startsWith(`${v}=`));
       });
 
-    if (filteredLines.length > 0) {
-      fs.writeFileSync(path.join(envDir, 'env'), filteredLines.join('\n') + '\n');
-      mounts.push({
-        hostPath: envDir,
-        containerPath: '/workspace/env-dir',
-        readonly: true
-      });
+  // 2. Load from process.env (overrides .env file)
+  for (const v of allowedVars) {
+    if (process.env[v]) {
+      envMap.set(v, process.env[v]!);
     }
+  }
+
+  if (envMap.size > 0) {
+    const envContent = Array.from(envMap.entries())
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n') + '\n';
+
+    fs.writeFileSync(path.join(envDir, 'env'), envContent);
+    mounts.push({
+      hostPath: envDir,
+      containerPath: '/workspace/env-dir',
+      readonly: true
+    });
   }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
@@ -369,11 +391,20 @@ export async function runContainerAgent(
       logger.debug({ logFile, verbose: isVerbose }, 'Container log written');
 
       if (code !== 0) {
+        // Capture a larger slice of stderr for diagnostics
+        // We take both the START (for Doctor diagnostics) and the END (for the actual crash)
+        let stderrSummary: string;
+        if (stderr.length <= 3000) {
+          stderrSummary = stderr;
+        } else {
+          stderrSummary = `${stderr.slice(0, 1000)}\n\n[... middle omitted ...]\n\n${stderr.slice(-2000)}`;
+        }
+
         logger.error({
           group: group.name,
           code,
           duration,
-          stderr: stderr.slice(-500),
+          stderr: stderr.slice(-1000),
           logFile
         }, 'Container exited with error');
 
