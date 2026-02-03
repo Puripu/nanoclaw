@@ -124,7 +124,12 @@ function buildVolumeMounts(group: RegisteredGroup, isMain: boolean): VolumeMount
   const envFile = path.join(projectRoot, '.env');
   if (fs.existsSync(envFile)) {
     const envContent = fs.readFileSync(envFile, 'utf-8');
-    const allowedVars = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'];
+    const allowedVars = [
+      'CLAUDE_CODE_OAUTH_TOKEN',
+      'ANTHROPIC_API_KEY',
+      'CLAUDE_CODE_EULA_ACCEPTED',
+      'CLAUDE_CODE_SKIP_PERMISSION_CHECKS'
+    ];
     const filteredLines = envContent
       .split('\n')
       .filter(line => {
@@ -162,13 +167,11 @@ function detectContainerRuntime(): 'docker' | 'container' {
   // 1. Check for Docker (preferred)
   try {
     execSync('docker info', { stdio: 'ignore', timeout: 5000 });
-    logger.info('Container runtime: docker');
     return 'docker';
   } catch (err) {
     // Try full path as fallback
     try {
       execSync('/usr/bin/docker info', { stdio: 'ignore', timeout: 5000 });
-      logger.info('Container runtime: docker');
       return 'docker';
     } catch {
       // Docker daemon might not be running yet, but we'll check for the binary later
@@ -176,23 +179,21 @@ function detectContainerRuntime(): 'docker' | 'container' {
   }
 
   // 2. Check for Apple Container (macOS only)
-  try {
-    // Check for binary and system status
-    execSync('container system status', { stdio: 'ignore' });
-    logger.info('Container runtime: Apple Container');
-    return 'container';
-  } catch {
-    // Apple Container not available or not running
+  if (process.platform === 'darwin') {
+    try {
+      execSync('container system status', { stdio: 'ignore' });
+      return 'container';
+    } catch {
+      // Apple Container not available or not running
+    }
   }
 
   // 3. Last resort: check if docker binary exists even if daemon check failed
   try {
     execSync('which docker', { stdio: 'ignore' });
-    logger.info('Container runtime: docker (binary found, daemon check failed)');
     return 'docker';
   } catch {
     // No runtime found, defaulting to docker for better error messages
-    logger.warn('No container runtime detected, defaulting to docker');
     return 'docker';
   }
 }
@@ -379,7 +380,7 @@ export async function runContainerAgent(
         resolve({
           status: 'error',
           result: null,
-          error: `Container exited with code ${code}: ${stderr.slice(-200)}`
+          error: `Container exited with code ${code}. Check logs for details: ${logFile}\n\nLast stderr:\n${stderr.slice(-1000)}`
         });
         return;
       }

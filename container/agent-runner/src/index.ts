@@ -213,7 +213,8 @@ async function runDoctor(): Promise<void> {
   if (!oauthToken && !apiKey) {
     log('WARNING: No authentication token found (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)');
   } else {
-    log(`Auth: ${oauthToken ? 'OAuth token present' : ''}${oauthToken && apiKey ? ', ' : ''}${apiKey ? 'API key present' : ''}`);
+    if (oauthToken) log(`Auth: OAuth token present (length: ${oauthToken.length})`);
+    if (apiKey) log(`Auth: API key present (length: ${apiKey.length})`);
   }
 
   // 2. Check Permissions
@@ -228,13 +229,26 @@ async function runDoctor(): Promise<void> {
     log(`ERROR: .claude directory is NOT writable: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // 3. Check Connectivity (non-blocking)
+  // 3. Check Connectivity
   const dns = await import('dns/promises');
-  dns.lookup('api.anthropic.com').then(addr => {
-    log(`Network: api.anthropic.com resolved to ${addr.address}`);
-  }).catch(err => {
-    log(`Network ERROR: Failed to resolve api.anthropic.com: ${err.message}`);
-  });
+  const hosts = ['api.anthropic.com', 'api.telegram.org', 'google.com'];
+  for (const host of hosts) {
+    try {
+      const addr = await dns.lookup(host);
+      log(`Network: ${host} resolved to ${addr.address}`);
+    } catch (err) {
+      log(`Network ERROR: Failed to resolve ${host}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // 4. Check Claude CLI
+  const { execSync } = await import('child_process');
+  try {
+    const version = execSync('claude --version', { encoding: 'utf8' }).trim();
+    log(`Claude CLI: ${version} is available`);
+  } catch (err) {
+    log(`ERROR: Claude CLI check failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 async function main(): Promise<void> {

@@ -623,27 +623,38 @@ async function startMessageLoop(): Promise<void> {
 }
 
 function ensureContainerSystemRunning(): void {
+  const isMac = process.platform === 'darwin';
+
   // 1. Check for Docker (cross-platform)
   try {
     execSync('docker info', { stdio: 'pipe', timeout: 10000 });
-    logger.info('Using Docker container runtime');
+    logger.info('Container runtime: docker');
     return;
   } catch (dockerErr) {
-    // Docker might be installed but daemon not running, or not in PATH
+    // Try full path fallback
     try {
       execSync('/usr/bin/docker info', { stdio: 'pipe', timeout: 10000 });
-      logger.info('Using Docker container runtime (/usr/bin/docker)');
+      logger.info('Container runtime: docker (/usr/bin/docker)');
       return;
     } catch {
-      logger.debug({ err: dockerErr }, 'Docker not available, trying Apple Container');
+      if (!isMac) {
+        // On Linux, we only have Docker. If it failed, warn.
+        try {
+          execSync('which docker', { stdio: 'ignore' });
+          logger.warn('Docker binary found but daemon check failed. Agents will likely fail to start.');
+          return;
+        } catch {
+          // No docker binary either
+        }
+      }
     }
   }
 
   // 2. Try Apple Container (macOS only)
-  if (process.platform === 'darwin') {
+  if (isMac) {
     try {
       execSync('container system status', { stdio: 'pipe' });
-      logger.debug('Apple Container system already running');
+      logger.info('Container runtime: Apple Container');
       return;
     } catch {
       logger.info('Starting Apple Container system...');
@@ -656,13 +667,6 @@ function ensureContainerSystemRunning(): void {
       }
     }
   }
-
-  // 3. Fallback check for docker binary existence (to provide better error later if spawn fails)
-  try {
-    execSync('which docker', { stdio: 'ignore' });
-    logger.warn('Docker binary found but daemon check failed. Agent execution may still fail.');
-    return;
-  } catch {}
 
   // Neither runtime available
   console.error('\n╔════════════════════════════════════════════════════════════════╗');

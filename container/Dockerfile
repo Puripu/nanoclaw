@@ -34,6 +34,10 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 # Mitigate DNS/IPv6 timeout issues (common on some VPS/server environments)
 ENV NODE_OPTIONS="--dns-result-order=ipv4first"
 
+# Standard Claude Code environment variables for non-interactive use
+ENV CLAUDE_CODE_EULA_ACCEPTED=true
+ENV CLAUDE_CODE_SKIP_PERMISSION_CHECKS=true
+
 # Install agent-browser and claude-code globally
 RUN npm install -g agent-browser @anthropic-ai/claude-code
 
