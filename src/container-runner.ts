@@ -3,7 +3,7 @@
  * Spawns agent execution in Apple Container and handles IPC
  */
 
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -162,8 +162,6 @@ function buildVolumeMounts(group: RegisteredGroup, isMain: boolean): VolumeMount
 }
 
 function detectContainerRuntime(): 'docker' | 'container' {
-  const { execSync } = require('child_process');
-
   // 1. Check for Docker (preferred)
   try {
     execSync('docker info', { stdio: 'ignore', timeout: 5000 });
