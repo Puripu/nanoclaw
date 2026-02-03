@@ -23,7 +23,7 @@ else
 fi
 
 echo "Using runtime: ${RUNTIME}"
-
+    
 # Build with detected runtime
 $RUNTIME build -t "${IMAGE_NAME}:${TAG}" .
 
