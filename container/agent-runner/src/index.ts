@@ -56,7 +56,8 @@ function writeOutput(output: ContainerOutput): void {
 }
 
 function log(message: string): void {
-  console.error(`[agent-runner] ${message}`);
+  // Use process.stderr.write for unbuffered output to ensure we see diagnostics even on crash
+  process.stderr.write(`[agent-runner] ${message}\n`);
 }
 
 function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
@@ -201,6 +202,78 @@ function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | nu
   return lines.join('\n');
 }
 
+/**
+ * Run diagnostic checks to identify common configuration issues.
+ */
+async function runDoctor(): Promise<void> {
+  log('Running diagnostic checks...');
+
+  // 1. Check Authentication
+  const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const eula = process.env.CLAUDE_CODE_EULA_ACCEPTED;
+  const skip = process.env.CLAUDE_CODE_SKIP_PERMISSION_CHECKS;
+
+  if (!oauthToken && !apiKey) {
+    log('WARNING: No authentication token found (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)');
+  } else {
+    if (oauthToken) {
+      const masked = oauthToken.length > 10 ? `${oauthToken.slice(0, 5)}...${oauthToken.slice(-5)}` : '***';
+      log(`Auth: OAuth token present (length: ${oauthToken.length}, value: ${masked})`);
+    }
+    if (apiKey) {
+      const masked = apiKey.length > 10 ? `${apiKey.slice(0, 5)}...${apiKey.slice(-5)}` : '***';
+      log(`Auth: API key present (length: ${apiKey.length}, value: ${masked})`);
+    }
+  }
+  log(`Config: EULA accepted: ${eula}, Skip permissions: ${skip}`);
+
+  // 2. Check Permissions
+  const sessionsDir = '/home/node/.claude';
+  try {
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const testFile = path.join(sessionsDir, '.write-test');
+    fs.writeFileSync(testFile, 'test');
+    fs.unlinkSync(testFile);
+    log('Permissions: .claude directory is writable');
+  } catch (err) {
+    log(`ERROR: .claude directory is NOT writable: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // 3. Check Connectivity
+  const dns = await import('dns/promises');
+  const hosts = ['api.anthropic.com', 'api.telegram.org', 'google.com'];
+  for (const host of hosts) {
+    try {
+      const addr = await dns.lookup(host);
+      log(`Network: ${host} resolved to ${addr.address}`);
+    } catch (err) {
+      log(`Network ERROR: Failed to resolve ${host}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // 4. Check Claude CLI
+  const { execSync } = await import('child_process');
+  try {
+    const version = execSync('claude --version', { encoding: 'utf8' }).trim();
+    log(`Claude CLI: ${version} is available`);
+
+    // 5. Test Run (minimal prompt)
+    log('Testing Claude CLI with minimal prompt...');
+    const testOutput = execSync('claude -p "hi" --allowedTools ""', {
+      encoding: 'utf8',
+      env: { ...process.env, CLAUDE_CODE_EULA_ACCEPTED: 'true' },
+      timeout: 30000
+    }).trim();
+    log(`Claude CLI Test Success: ${testOutput.slice(0, 50)}...`);
+  } catch (err) {
+    log(`ERROR: Claude CLI check failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (err && typeof err === 'object' && 'stderr' in err) {
+      log(`Claude CLI Test Stderr: ${String(err.stderr)}`);
+    }
+  }
+}
+
 async function main(): Promise<void> {
   let input: ContainerInput;
 
@@ -208,6 +281,9 @@ async function main(): Promise<void> {
     const stdinData = await readStdin();
     input = JSON.parse(stdinData);
     log(`Received input for group: ${input.groupFolder}`);
+
+    // Run diagnostics if requested or on error (we'll run them always for now to help debug)
+    await runDoctor();
   } catch (err) {
     writeOutput({
       status: 'error',
@@ -242,8 +318,13 @@ async function main(): Promise<void> {
         resume: input.sessionId,
         allowedTools: [
           'Bash',
-          'Read', 'Write', 'Edit', 'Glob', 'Grep',
-          'WebSearch', 'WebFetch',
+          'Read',
+          'Write',
+          'Edit',
+          'Glob',
+          'Grep',
+          'WebSearch',
+          'WebFetch',
           'mcp__nanoclaw__*',
           'mcp__browser__*'
         ],
@@ -259,9 +340,19 @@ async function main(): Promise<void> {
         }
       }
     })) {
+      // Verbose logging of all messages to identify where the crash happens
       if (message.type === 'system' && message.subtype === 'init') {
         newSessionId = message.session_id;
         log(`Session initialized: ${newSessionId}`);
+      } else if (message.type === 'assistant' && 'content' in message) {
+        // Just log a snippet of assistant content
+        const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
+        log(`Assistant: ${content.slice(0, 50)}...`);
+      } else if (message.type === 'stream_event') {
+        const event = (message as any).event;
+        if (event?.type === 'tool_use_start') {
+          log(`Tool Use: ${event.tool_name}`);
+        }
       }
 
       if ('result' in message && message.result) {
@@ -278,7 +369,8 @@ async function main(): Promise<void> {
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    log(`Agent error: ${errorMessage}`);
+    const stack = err instanceof Error ? err.stack : '';
+    log(`Agent error: ${errorMessage}${stack ? `\n${stack}` : ''}`);
     writeOutput({
       status: 'error',
       result: null,

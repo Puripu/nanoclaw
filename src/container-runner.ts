@@ -121,26 +121,53 @@ function buildVolumeMounts(group: RegisteredGroup, isMain: boolean): VolumeMount
   // Only expose specific auth variables needed by Claude Code, not the entire .env
   const envDir = path.join(DATA_DIR, 'env');
   fs.mkdirSync(envDir, { recursive: true });
+
+  const allowedVars = [
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'ANTHROPIC_API_KEY',
+    'CLAUDE_CODE_EULA_ACCEPTED',
+    'CLAUDE_CODE_SKIP_PERMISSION_CHECKS'
+  ];
+
+  // Map to store final values, prioritizing process.env then .env file
+  const envMap = new Map<string, string>();
+
+  // 1. Load from .env file if it exists
   const envFile = path.join(projectRoot, '.env');
   if (fs.existsSync(envFile)) {
     const envContent = fs.readFileSync(envFile, 'utf-8');
-    const allowedVars = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'];
-    const filteredLines = envContent
-      .split('\n')
-      .filter(line => {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) return false;
-        return allowedVars.some(v => trimmed.startsWith(`${v}=`));
-      });
+    envContent.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        const key = trimmed.slice(0, eqIdx);
+        const val = trimmed.slice(eqIdx + 1);
+        if (allowedVars.includes(key)) {
+          envMap.set(key, val);
+        }
+      }
+    });
+  }
 
-    if (filteredLines.length > 0) {
-      fs.writeFileSync(path.join(envDir, 'env'), filteredLines.join('\n') + '\n');
-      mounts.push({
-        hostPath: envDir,
-        containerPath: '/workspace/env-dir',
-        readonly: true
-      });
+  // 2. Load from process.env (overrides .env file)
+  for (const v of allowedVars) {
+    if (process.env[v]) {
+      envMap.set(v, process.env[v]!);
     }
+  }
+
+  if (envMap.size > 0) {
+    const envContent = Array.from(envMap.entries())
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n') + '\n';
+
+    fs.writeFileSync(path.join(envDir, 'env'), envContent);
+    mounts.push({
+      hostPath: envDir,
+      containerPath: '/workspace/env-dir',
+      readonly: true
+    });
   }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
@@ -157,32 +184,39 @@ function buildVolumeMounts(group: RegisteredGroup, isMain: boolean): VolumeMount
 }
 
 function detectContainerRuntime(): 'docker' | 'container' {
-  // Check if Docker is available and running
+  const { execSync } = require('child_process');
+
+  // 1. Check for Docker (preferred)
   try {
-    const { execSync } = require('child_process');
-    // Use full path to docker and increase timeout
-    execSync('/usr/bin/docker info', { stdio: 'ignore', timeout: 5000 });
-    logger.info('Container runtime: docker');
+    execSync('docker info', { stdio: 'ignore', timeout: 5000 });
     return 'docker';
   } catch (err) {
-    // Check if Apple Container is available
+    // Try full path as fallback
     try {
-      const { execSync } = require('child_process');
-      execSync('which container', { stdio: 'ignore' });
-      logger.info('Container runtime: Apple Container');
+      execSync('/usr/bin/docker info', { stdio: 'ignore', timeout: 5000 });
+      return 'docker';
+    } catch {
+      // Docker daemon might not be running yet, but we'll check for the binary later
+    }
+  }
+
+  // 2. Check for Apple Container (macOS only)
+  if (process.platform === 'darwin') {
+    try {
+      execSync('container system status', { stdio: 'ignore' });
       return 'container';
     } catch {
-      // Default to docker if neither check works but docker binary exists
-      try {
-        const { execSync } = require('child_process');
-        execSync('which docker', { stdio: 'ignore' });
-        logger.info('Container runtime: docker (fallback)');
-        return 'docker';
-      } catch {
-        logger.warn('No container runtime detected, defaulting to docker');
-        return 'docker';
-      }
+      // Apple Container not available or not running
     }
+  }
+
+  // 3. Last resort: check if docker binary exists even if daemon check failed
+  try {
+    execSync('which docker', { stdio: 'ignore' });
+    return 'docker';
+  } catch {
+    // No runtime found, defaulting to docker for better error messages
+    return 'docker';
   }
 }
 
@@ -357,18 +391,27 @@ export async function runContainerAgent(
       logger.debug({ logFile, verbose: isVerbose }, 'Container log written');
 
       if (code !== 0) {
+        // Capture a larger slice of stderr for diagnostics
+        // We take both the START (for Doctor diagnostics) and the END (for the actual crash)
+        let stderrSummary: string;
+        if (stderr.length <= 3000) {
+          stderrSummary = stderr;
+        } else {
+          stderrSummary = `${stderr.slice(0, 1000)}\n\n[... middle omitted ...]\n\n${stderr.slice(-2000)}`;
+        }
+
         logger.error({
           group: group.name,
           code,
           duration,
-          stderr: stderr.slice(-500),
+          stderr: stderr.slice(-1000),
           logFile
         }, 'Container exited with error');
 
         resolve({
           status: 'error',
           result: null,
-          error: `Container exited with code ${code}: ${stderr.slice(-200)}`
+          error: `Container exited with code ${code}.\nLog: ${logFile}\n\nStderr Trace:\n${stderrSummary}`
         });
         return;
       }
