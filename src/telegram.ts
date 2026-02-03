@@ -105,6 +105,15 @@ export async function startTelegramBot(): Promise<void> {
     return;
   }
 
+  // Diagnostics: check connectivity to Telegram API
+  try {
+    const dns = await import('dns/promises');
+    const addr = await dns.lookup('api.telegram.org');
+    logger.info({ host: 'api.telegram.org', address: addr.address }, 'Telegram API host resolved');
+  } catch (err) {
+    logger.error({ err }, 'Failed to resolve api.telegram.org. Bot may fail to connect.');
+  }
+
   loadTelegramState();
   ensureTelegramFolder();
 
@@ -195,7 +204,8 @@ export async function startTelegramBot(): Promise<void> {
         }
       } else if (result.error) {
         logger.error({ error: result.error }, 'Agent error');
-        await ctx.reply(`Sorry, I encountered an error: ${result.error.slice(0, 200)}`);
+        // Telegram limit is 4096, our stderr slice is 1000, so this should fit.
+        await ctx.reply(`Sorry, I encountered an error:\n\n${result.error}`);
       }
     } catch (err) {
       logger.error({ err }, 'Error processing Telegram message');

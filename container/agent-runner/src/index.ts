@@ -201,6 +201,56 @@ function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | nu
   return lines.join('\n');
 }
 
+/**
+ * Run diagnostic checks to identify common configuration issues.
+ */
+async function runDoctor(): Promise<void> {
+  log('Running diagnostic checks...');
+
+  // 1. Check Authentication
+  const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!oauthToken && !apiKey) {
+    log('WARNING: No authentication token found (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)');
+  } else {
+    if (oauthToken) log(`Auth: OAuth token present (length: ${oauthToken.length})`);
+    if (apiKey) log(`Auth: API key present (length: ${apiKey.length})`);
+  }
+
+  // 2. Check Permissions
+  const sessionsDir = '/home/node/.claude';
+  try {
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const testFile = path.join(sessionsDir, '.write-test');
+    fs.writeFileSync(testFile, 'test');
+    fs.unlinkSync(testFile);
+    log('Permissions: .claude directory is writable');
+  } catch (err) {
+    log(`ERROR: .claude directory is NOT writable: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // 3. Check Connectivity
+  const dns = await import('dns/promises');
+  const hosts = ['api.anthropic.com', 'api.telegram.org', 'google.com'];
+  for (const host of hosts) {
+    try {
+      const addr = await dns.lookup(host);
+      log(`Network: ${host} resolved to ${addr.address}`);
+    } catch (err) {
+      log(`Network ERROR: Failed to resolve ${host}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // 4. Check Claude CLI
+  const { execSync } = await import('child_process');
+  try {
+    const version = execSync('claude --version', { encoding: 'utf8' }).trim();
+    log(`Claude CLI: ${version} is available`);
+  } catch (err) {
+    log(`ERROR: Claude CLI check failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 async function main(): Promise<void> {
   let input: ContainerInput;
 
@@ -208,6 +258,9 @@ async function main(): Promise<void> {
     const stdinData = await readStdin();
     input = JSON.parse(stdinData);
     log(`Received input for group: ${input.groupFolder}`);
+
+    // Run diagnostics if requested or on error (we'll run them always for now to help debug)
+    await runDoctor();
   } catch (err) {
     writeOutput({
       status: 'error',

@@ -623,29 +623,48 @@ async function startMessageLoop(): Promise<void> {
 }
 
 function ensureContainerSystemRunning(): void {
-  // Check Docker first (cross-platform)
+  const isMac = process.platform === 'darwin';
+
+  // 1. Check for Docker (cross-platform)
   try {
     execSync('docker info', { stdio: 'pipe', timeout: 10000 });
-    logger.info('Using Docker container runtime');
+    logger.info('Container runtime: docker');
     return;
   } catch (dockerErr) {
-    // Docker not available, try Apple Container (macOS only)
-    logger.debug({ err: dockerErr }, 'Docker not available, trying Apple Container');
+    // Try full path fallback
+    try {
+      execSync('/usr/bin/docker info', { stdio: 'pipe', timeout: 10000 });
+      logger.info('Container runtime: docker (/usr/bin/docker)');
+      return;
+    } catch {
+      if (!isMac) {
+        // On Linux, we only have Docker. If it failed, warn.
+        try {
+          execSync('which docker', { stdio: 'ignore' });
+          logger.warn('Docker binary found but daemon check failed. Agents will likely fail to start.');
+          return;
+        } catch {
+          // No docker binary either
+        }
+      }
+    }
   }
 
-  // Try Apple Container
-  try {
-    execSync('container system status', { stdio: 'pipe' });
-    logger.debug('Apple Container system already running');
-    return;
-  } catch {
-    logger.info('Starting Apple Container system...');
+  // 2. Try Apple Container (macOS only)
+  if (isMac) {
     try {
-      execSync('container system start', { stdio: 'pipe', timeout: 30000 });
-      logger.info('Apple Container system started');
+      execSync('container system status', { stdio: 'pipe' });
+      logger.info('Container runtime: Apple Container');
       return;
-    } catch (err) {
-      logger.error({ err }, 'Failed to start Apple Container system');
+    } catch {
+      logger.info('Starting Apple Container system...');
+      try {
+        execSync('container system start', { stdio: 'pipe', timeout: 30000 });
+        logger.info('Apple Container system started');
+        return;
+      } catch (err) {
+        logger.error({ err }, 'Failed to start Apple Container system');
+      }
     }
   }
 
