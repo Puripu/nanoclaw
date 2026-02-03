@@ -62,7 +62,7 @@ RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/
 # Create entrypoint script
 # Sources env from mounted /workspace/env-dir/env if it exists (workaround for Apple Container -i bug)
 # Sets NODE_PATH so custom MCP servers can find global and app-level dependencies
-RUN printf '#!/bin/bash\nset -e\nexport NODE_PATH=/app/node_modules:$(npm root -g):$NODE_PATH\nexport TERM=xterm-256color\nexport SHELL=/bin/bash\nif [ -f /workspace/env-dir/env ]; then\n  while IFS= read -r line || [ -n "$line" ]; do\n    [ -z "$line" ] || [[ "$line" == \#* ]] || export "$line"\n  done < /workspace/env-dir/env\nfi\ncat > /tmp/input.json\nnode /app/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN printf '#!/bin/bash\nset -e\nexport NODE_PATH=/app/node_modules:$(npm root -g):$NODE_PATH\nif [ -f /workspace/env-dir/env ]; then\n  while IFS= read -r line || [ -n "$line" ]; do\n    [ -z "$line" ] || [[ "$line" == \#* ]] || export "$line"\n  done < /workspace/env-dir/env\nfi\ncat > /tmp/input.json\nnode /app/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories
 RUN chown -R node:node /workspace

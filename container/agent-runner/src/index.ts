@@ -211,22 +211,12 @@ async function runDoctor(): Promise<void> {
   // 1. Check Authentication
   const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  const eula = process.env.CLAUDE_CODE_EULA_ACCEPTED;
-  const skip = process.env.CLAUDE_CODE_SKIP_PERMISSION_CHECKS;
-
   if (!oauthToken && !apiKey) {
     log('WARNING: No authentication token found (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)');
   } else {
-    if (oauthToken) {
-      const masked = oauthToken.length > 10 ? `${oauthToken.slice(0, 5)}...${oauthToken.slice(-5)}` : '***';
-      log(`Auth: OAuth token present (length: ${oauthToken.length}, value: ${masked})`);
-    }
-    if (apiKey) {
-      const masked = apiKey.length > 10 ? `${apiKey.slice(0, 5)}...${apiKey.slice(-5)}` : '***';
-      log(`Auth: API key present (length: ${apiKey.length}, value: ${masked})`);
-    }
+    if (oauthToken) log(`Auth: OAuth token present (length: ${oauthToken.length})`);
+    if (apiKey) log(`Auth: API key present (length: ${apiKey.length})`);
   }
-  log(`Config: EULA accepted: ${eula}, Skip permissions: ${skip}`);
 
   // 2. Check Permissions
   const sessionsDir = '/home/node/.claude';
@@ -257,20 +247,8 @@ async function runDoctor(): Promise<void> {
   try {
     const version = execSync('claude --version', { encoding: 'utf8' }).trim();
     log(`Claude CLI: ${version} is available`);
-
-    // 5. Test Run (minimal prompt)
-    log('Testing Claude CLI with minimal prompt...');
-    const testOutput = execSync('claude -p "hi" --allowedTools ""', {
-      encoding: 'utf8',
-      env: { ...process.env, CLAUDE_CODE_EULA_ACCEPTED: 'true' },
-      timeout: 30000
-    }).trim();
-    log(`Claude CLI Test Success: ${testOutput.slice(0, 50)}...`);
   } catch (err) {
     log(`ERROR: Claude CLI check failed: ${err instanceof Error ? err.message : String(err)}`);
-    if (err && typeof err === 'object' && 'stderr' in err) {
-      log(`Claude CLI Test Stderr: ${String(err.stderr)}`);
-    }
   }
 }
 
@@ -317,14 +295,15 @@ async function main(): Promise<void> {
         cwd: '/workspace/group',
         resume: input.sessionId,
         allowedTools: [
-          'Bash',
-          'Read',
-          'Write',
-          'Edit',
-          'Glob',
-          'Grep',
-          'WebSearch',
-          'WebFetch',
+          'Bash', 'bash',
+          'Read', 'readFile',
+          'Write', 'writeFile',
+          'Edit', 'editFile',
+          'Glob', 'glob',
+          'Grep', 'grep',
+          'ls', 'cat',
+          'WebSearch', 'webSearch',
+          'WebFetch', 'webFetch',
           'mcp__nanoclaw__*',
           'mcp__browser__*'
         ],

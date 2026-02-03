@@ -136,19 +136,19 @@ function buildVolumeMounts(group: RegisteredGroup, isMain: boolean): VolumeMount
   const envFile = path.join(projectRoot, '.env');
   if (fs.existsSync(envFile)) {
     const envContent = fs.readFileSync(envFile, 'utf-8');
-    envContent.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return;
-      const eqIdx = trimmed.indexOf('=');
-      if (eqIdx > 0) {
-        const key = trimmed.slice(0, eqIdx);
-        const val = trimmed.slice(eqIdx + 1);
-        if (allowedVars.includes(key)) {
-          envMap.set(key, val);
-        }
-      }
-    });
-  }
+    const allowedVars = [
+      'CLAUDE_CODE_OAUTH_TOKEN',
+      'ANTHROPIC_API_KEY',
+      'CLAUDE_CODE_EULA_ACCEPTED',
+      'CLAUDE_CODE_SKIP_PERMISSION_CHECKS'
+    ];
+    const filteredLines = envContent
+      .split('\n')
+      .filter(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return false;
+        return allowedVars.some(v => trimmed.startsWith(`${v}=`));
+      });
 
   // 2. Load from process.env (overrides .env file)
   for (const v of allowedVars) {
@@ -411,7 +411,7 @@ export async function runContainerAgent(
         resolve({
           status: 'error',
           result: null,
-          error: `Container exited with code ${code}.\nLog: ${logFile}\n\nStderr Trace:\n${stderrSummary}`
+          error: `Container exited with code ${code}. Check logs for details: ${logFile}\n\nLast stderr:\n${stderr.slice(-1000)}`
         });
         return;
       }
