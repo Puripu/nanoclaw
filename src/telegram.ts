@@ -139,15 +139,26 @@ export async function startTelegramBot(): Promise<void> {
     // Store the chat ID for IPC message sending
     defaultChatId = chatId;
 
-    // Handle /model commands
-    if (text.startsWith('/model')) {
+    // Handle slash commands (/model, /clear, /reset, /help)
+    // Skip /start which is handled separately
+    if (text.startsWith('/') && !text.startsWith('/start')) {
       const result = handleCommand(text, TELEGRAM_GROUP_FOLDER, false);
-      if (result.handled && result.response) {
-        await ctx.reply(result.response, { parse_mode: 'Markdown' }).catch(() => {
-          return ctx.reply(result.response!);
-        });
+      if (result.handled) {
+        // Clear session state if requested
+        if (result.clearSession) {
+          const providerName = getProviderManager().getProviderForGroup(TELEGRAM_GROUP_FOLDER);
+          const sessionKey = `${providerName}-telegram-${chatId}`;
+          delete telegramSessions[sessionKey];
+          saveTelegramState();
+          logger.info({ chatId, sessionKey }, 'Telegram session cleared');
+        }
+        if (result.response) {
+          await ctx.reply(result.response, { parse_mode: 'Markdown' }).catch(() => {
+            return ctx.reply(result.response!);
+          });
+        }
+        return;
       }
-      return;
     }
 
     // Send typing indicator

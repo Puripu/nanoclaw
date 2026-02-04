@@ -182,13 +182,23 @@ export async function startDiscordBot(): Promise<void> {
       return;
     }
 
-    // Handle /model commands
-    if (content.startsWith('/model')) {
+    // Handle slash commands (/model, /clear, /reset, /help)
+    if (content.startsWith('/')) {
       const result = handleCommand(content, DISCORD_GROUP_FOLDER, false);
-      if (result.handled && result.response) {
-        await message.reply(result.response);
+      if (result.handled) {
+        // Clear session state if requested
+        if (result.clearSession) {
+          const providerName = getProviderManager().getProviderForGroup(DISCORD_GROUP_FOLDER);
+          const sessionKey = `${providerName}-discord-${channelId}`;
+          delete discordState.sessions[sessionKey];
+          saveDiscordState();
+          logger.info({ channelId, sessionKey }, 'Discord session cleared');
+        }
+        if (result.response) {
+          await message.reply(result.response);
+        }
+        return;
       }
-      return;
     }
 
     // Check if we should respond

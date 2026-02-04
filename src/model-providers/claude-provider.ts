@@ -127,7 +127,8 @@ function buildVolumeMounts(group: RegisteredGroup, isMain: boolean): VolumeMount
       'CLAUDE_CODE_OAUTH_TOKEN',
       'ANTHROPIC_API_KEY',
       'CLAUDE_CODE_EULA_ACCEPTED',
-      'CLAUDE_CODE_SKIP_PERMISSION_CHECKS'
+      'CLAUDE_CODE_SKIP_PERMISSION_CHECKS',
+      'BRAVE_API_KEY'
     ];
     const filteredLines = envContent
       .split('\n')

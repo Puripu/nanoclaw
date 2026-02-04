@@ -16,9 +16,12 @@ export class GeminiProvider extends BaseModelProvider {
     fs.mkdirSync(envDir, { recursive: true });
 
     // Write environment variables for the container
-    // This allows the container to access the Gemini API Key securely
-    const envContent = `GOOGLE_API_KEY=${process.env.GOOGLE_API_KEY}\n`;
-    fs.writeFileSync(path.join(envDir, 'env'), envContent);
+    // This allows the container to access API keys securely
+    const envLines: string[] = [];
+    if (process.env.GOOGLE_API_KEY) envLines.push(`GOOGLE_API_KEY=${process.env.GOOGLE_API_KEY}`);
+    if (process.env.GEMINI_API_KEY) envLines.push(`GEMINI_API_KEY=${process.env.GEMINI_API_KEY}`);
+    if (process.env.BRAVE_API_KEY) envLines.push(`BRAVE_API_KEY=${process.env.BRAVE_API_KEY}`);
+    fs.writeFileSync(path.join(envDir, 'env'), envLines.join('\n') + '\n');
 
     const inputJson = JSON.stringify(request);
     const containerName = `nanoclaw-gemini-${request.groupFolder}-${Date.now()}`;

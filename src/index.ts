@@ -26,6 +26,8 @@ import { loadJson, saveJson, escapeXml } from './utils.js';
 import { startTelegramBot, sendTelegramMessage, sendTelegramPhoto, isTelegramJid, TELEGRAM_GROUP_FOLDER } from './telegram.js';
 import { startDiscordBot, sendDiscordMessage, sendDiscordPhoto, isDiscordJid, DISCORD_GROUP_FOLDER } from './discord.js';
 import { logger } from './logger.js';
+import { handleCommand } from './command-handler.js';
+import { getProviderManager } from './model-providers/index.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -147,6 +149,23 @@ async function processMessage(msg: NewMessage): Promise<void> {
 
   const content = msg.content.trim();
   const isMainGroup = group.folder === MAIN_GROUP_FOLDER;
+
+  // Handle slash commands (/model, /clear, /reset, /help)
+  if (content.startsWith('/')) {
+    const result = handleCommand(content, group.folder, isMainGroup);
+    if (result.handled) {
+      // Clear session state if requested
+      if (result.clearSession) {
+        delete sessions[group.folder];
+        saveJson(path.join(DATA_DIR, 'sessions.json'), sessions);
+        logger.info({ groupFolder: group.folder }, 'WhatsApp session cleared');
+      }
+      if (result.response) {
+        await sendMessage(msg.chat_jid, `${ASSISTANT_NAME}: ${result.response}`);
+      }
+      return;
+    }
+  }
 
   // Main group responds to all messages; other groups require trigger prefix
   if (!isMainGroup && !TRIGGER_PATTERN.test(content)) return;

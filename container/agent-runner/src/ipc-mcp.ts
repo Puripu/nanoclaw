@@ -7,7 +7,64 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
+import https from 'https';
 import { CronExpressionParser } from 'cron-parser';
+
+// Brave Search API helper
+interface BraveSearchResult {
+  title: string;
+  url: string;
+  description: string;
+}
+
+function braveSearch(query: string): Promise<BraveSearchResult[]> {
+  const apiKey = process.env.BRAVE_API_KEY;
+  if (!apiKey) {
+    return Promise.reject(new Error('BRAVE_API_KEY not configured'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const encodedQuery = encodeURIComponent(query);
+    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodedQuery}&count=10`;
+
+    const req = https.get(url, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Subscription-Token': apiKey
+      },
+      timeout: 15000
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`Brave API error: ${res.statusCode} ${res.statusMessage}`));
+        return;
+      }
+
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const results: BraveSearchResult[] = (json.web?.results || []).map((r: any) => ({
+            title: r.title || '',
+            url: r.url || '',
+            description: r.description || ''
+          }));
+          resolve(results);
+        } catch (err) {
+          reject(new Error(`Failed to parse Brave response: ${err}`));
+        }
+      });
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Brave search timed out'));
+    });
+  });
+}
 
 const IPC_DIR = '/workspace/ipc';
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
@@ -350,6 +407,48 @@ Use available_groups.json to find the JID for a group. The folder name should be
               text: `Group "${args.name}" registered. It will start receiving messages immediately.`
             }]
           };
+        }
+      ),
+
+      tool(
+        'brave_search',
+        `Search the web using the Brave Search API. Use this as an alternative or fallback to WebSearch.
+Returns structured search results with titles, URLs, and descriptions. Faster than browser-based search.`,
+        {
+          query: z.string().describe('The search query')
+        },
+        async (args) => {
+          try {
+            const results = await braveSearch(args.query);
+
+            if (results.length === 0) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: `No results found for "${args.query}"`
+                }]
+              };
+            }
+
+            const formatted = results.map((r, i) =>
+              `${i + 1}. **${r.title}**\n   URL: ${r.url}\n   ${r.description}`
+            ).join('\n\n');
+
+            return {
+              content: [{
+                type: 'text',
+                text: `Search results for "${args.query}":\n\n${formatted}`
+              }]
+            };
+          } catch (err) {
+            return {
+              content: [{
+                type: 'text',
+                text: `Brave search error: ${err instanceof Error ? err.message : String(err)}`
+              }],
+              isError: true
+            };
+          }
         }
       )
     ]
