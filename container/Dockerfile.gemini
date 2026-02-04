@@ -1,0 +1,48 @@
+# NanoClaw Gemini Agent Container
+# Runs Google Gemini with function calling in isolated Linux VM
+
+FROM node:22-slim
+
+# Install basic dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Mitigate DNS/IPv6 timeout issues
+ENV NODE_OPTIONS="--dns-result-order=ipv4first"
+
+# Create app directory
+WORKDIR /app
+
+# Copy package files first for better caching
+COPY agent-runner-gemini/package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy source code
+COPY agent-runner-gemini/ ./
+
+# Build TypeScript
+RUN npm run build
+
+# Create workspace directories
+RUN mkdir -p /workspace/group /workspace/global /workspace/ipc/messages /workspace/ipc/tasks
+RUN mkdir -p /home/node/.gemini
+
+# Create entrypoint script
+# Sources env from mounted /workspace/env-dir/env if it exists
+RUN printf '#!/bin/bash\nset -e\nif [ -f /workspace/env-dir/env ]; then\n  while IFS= read -r line || [ -n "$line" ]; do\n    [ -z "$line" ] || [[ "$line" == \#* ]] || export "$line"\n  done < /workspace/env-dir/env\nfi\ncat > /tmp/input.json\nnode /app/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
+# Set ownership to node user (non-root)
+RUN chown -R node:node /workspace /home/node
+
+# Switch to non-root user
+USER node
+
+# Set working directory to group workspace
+WORKDIR /workspace/group
+
+# Entry point reads JSON from stdin, outputs JSON to stdout
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -1,34 +1,19 @@
 /**
  * Container Runner for NanoClaw
- * Spawns agent execution in Apple Container and handles IPC
+ * Routes agent execution through model providers
  */
 
-import { spawn, execSync } from 'child_process';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import {
-  CONTAINER_IMAGE,
-  CONTAINER_TIMEOUT,
-  CONTAINER_MAX_OUTPUT_SIZE,
-  GROUPS_DIR,
-  DATA_DIR
-} from './config.js';
+import { GROUPS_DIR, DATA_DIR } from './config.js';
 import { RegisteredGroup } from './types.js';
-import { validateAdditionalMounts } from './mount-security.js';
 import { logger } from './logger.js';
-
-// Sentinel markers for robust output parsing (must match agent-runner)
-const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
-
-function getHomeDir(): string {
-  const home = process.env.HOME || os.homedir();
-  if (!home) {
-    throw new Error('Unable to determine home directory: HOME environment variable is not set and os.homedir() returned empty');
-  }
-  return home;
-}
+import {
+  ProviderFactory,
+  getProviderManager,
+  AgentRequest,
+  AgentResponse
+} from './model-providers/index.js';
 
 export interface ContainerInput {
   prompt: string;
@@ -247,23 +232,20 @@ export async function runContainerAgent(
   group: RegisteredGroup,
   input: ContainerInput
 ): Promise<ContainerOutput> {
-  const startTime = Date.now();
-
   const groupDir = path.join(GROUPS_DIR, group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
-  const mounts = buildVolumeMounts(group, input.isMain);
-  const containerArgs = buildContainerArgs(mounts);
+  const logsDir = path.join(groupDir, 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
 
-  logger.debug({
-    group: group.name,
-    mounts: mounts.map(m => `${m.hostPath} -> ${m.containerPath}${m.readonly ? ' (ro)' : ''}`),
-    containerArgs: containerArgs.join(' ')
-  }, 'Container mount configuration');
+  // Get the appropriate provider for this group
+  const providerManager = getProviderManager();
+  const providerName = providerManager.getProviderForGroup(input.groupFolder);
+  const provider = ProviderFactory.getProvider(providerName);
 
   logger.info({
     group: group.name,
-    mountCount: mounts.length,
+    provider: providerName,
     isMain: input.isMain
   }, 'Spawning container agent');
 
@@ -458,6 +440,8 @@ export async function runContainerAgent(
       });
     });
   });
+
+  return response;
 }
 
 export function writeTasksSnapshot(
@@ -473,11 +457,9 @@ export function writeTasksSnapshot(
     next_run: string | null;
   }>
 ): void {
-  // Write filtered tasks to the group's IPC directory
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  // Main sees all tasks, others only see their own
   const filteredTasks = isMain
     ? tasks
     : tasks.filter(t => t.groupFolder === groupFolder);
@@ -493,11 +475,6 @@ export interface AvailableGroup {
   isRegistered: boolean;
 }
 
-/**
- * Write available groups snapshot for the container to read.
- * Only main group can see all available groups (for activation).
- * Non-main groups only see their own registration status.
- */
 export function writeGroupsSnapshot(
   groupFolder: string,
   isMain: boolean,
@@ -507,7 +484,6 @@ export function writeGroupsSnapshot(
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  // Main sees all groups; others see nothing (they can't activate groups)
   const visibleGroups = isMain ? groups : [];
 
   const groupsFile = path.join(groupIpcDir, 'available_groups.json');

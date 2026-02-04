@@ -13,6 +13,8 @@ import { runContainerAgent, writeTasksSnapshot } from './container-runner.js';
 import { getAllTasks } from './db.js';
 import { loadJson, saveJson, escapeXml } from './utils.js';
 import { logger } from './logger.js';
+import { handleCommand } from './command-handler.js';
+import { getProviderManager } from './model-providers/index.js';
 
 export const DISCORD_GROUP_FOLDER = 'discord';
 export const DISCORD_JID_PREFIX = 'discord-';
@@ -180,6 +182,15 @@ export async function startDiscordBot(): Promise<void> {
       return;
     }
 
+    // Handle /model commands
+    if (content.startsWith('/model')) {
+      const result = handleCommand(content, DISCORD_GROUP_FOLDER, false);
+      if (result.handled && result.response) {
+        await message.reply(result.response);
+      }
+      return;
+    }
+
     // Check if we should respond
     const mode = getChannelMode(channelId);
     const isMentioned = message.mentions.has(client.user!);
@@ -208,8 +219,9 @@ export async function startDiscordBot(): Promise<void> {
     }
 
     try {
-      // Get or create session for this channel
-      const sessionKey = `discord-${channelId}`;
+      // Get or create session for this channel (provider-aware to avoid cross-provider session issues)
+      const providerName = getProviderManager().getProviderForGroup(DISCORD_GROUP_FOLDER);
+      const sessionKey = `${providerName}-discord-${channelId}`;
       const sessionId = discordState.sessions[sessionKey];
 
       // Write tasks snapshot for the container

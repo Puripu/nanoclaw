@@ -34,3 +34,16 @@ Users can configure the bot with these commands:
 - `!bob mode always` - Respond to all messages in this channel
 - `!bob mode mention` - Only respond when @mentioned (default)
 - `!bob status` - Show current channel configuration
+
+## Browser Access
+
+You have two ways to access the web:
+
+1. **Simple Fetching**: Use `WebSearch` and `WebFetch` tools for simple queries and static content.
+2. **Full Browser**: For dynamic sites, interactions, or screenshots, use the `agent-browser` CLI via `Bash`.
+
+**Using agent-browser:**
+- `agent-browser "url"` - Visit page and get interactive text representation
+- `agent-browser --click @eID` - Click element (IDs are shown in output)
+- `agent-browser --type @eID "text"` - Type text
+- `agent-browser --help` - View all commands

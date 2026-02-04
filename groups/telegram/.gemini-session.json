@@ -1,0 +1,36 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "<message from=\"Phil\" timestamp=\"2026-02-04T14:20:10.861Z\">\nHi\n</message>"
+        }
+      ]
+    },
+    {
+      "parts": [
+        {
+          "text": "Hi! How can I help you today, Phil?\n"
+        }
+      ],
+      "role": "model"
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "<message from=\"Phil\" timestamp=\"2026-02-04T14:39:22.574Z\">\nhi\n</message>"
+        }
+      ]
+    },
+    {
+      "parts": [
+        {
+          "text": "Hello! What can I do for you?\n"
+        }
+      ],
+      "role": "model"
+    }
+  ]
+}
