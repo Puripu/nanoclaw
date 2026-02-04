@@ -56,7 +56,8 @@ function writeOutput(output: ContainerOutput): void {
 }
 
 function log(message: string): void {
-  console.error(`[agent-runner] ${message}`);
+  // Use process.stderr.write for unbuffered output to ensure we see diagnostics even on crash
+  process.stderr.write(`[agent-runner] ${message}\n`);
 }
 
 function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
@@ -318,9 +319,19 @@ async function main(): Promise<void> {
         }
       }
     })) {
+      // Verbose logging of all messages to identify where the crash happens
       if (message.type === 'system' && message.subtype === 'init') {
         newSessionId = message.session_id;
         log(`Session initialized: ${newSessionId}`);
+      } else if (message.type === 'assistant' && 'content' in message) {
+        // Just log a snippet of assistant content
+        const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
+        log(`Assistant: ${content.slice(0, 50)}...`);
+      } else if (message.type === 'stream_event') {
+        const event = (message as any).event;
+        if (event?.type === 'tool_use_start') {
+          log(`Tool Use: ${event.tool_name}`);
+        }
       }
 
       if ('result' in message && message.result) {

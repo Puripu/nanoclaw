@@ -399,6 +399,12 @@ The user should receive a response in WhatsApp.
 **Service not starting**: Check `logs/nanoclaw.error.log`
 
 **Container agent fails with "Claude Code process exited with code 1"**:
+- **IMPORTANT**: If you just updated the code, you must recompile the host AND rebuild the container:
+  ```bash
+  npm run build
+  ./container/build.sh
+  ```
+  Then restart your NanoClaw service.
 - Ensure the container runtime is running:
   - Apple Container: `container system start`
   - Docker: `docker info` (start Docker Desktop on macOS, or `sudo systemctl start docker` on Linux)
