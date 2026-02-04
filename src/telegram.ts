@@ -26,6 +26,8 @@ import { runContainerAgent, writeTasksSnapshot } from './container-runner.js';
 import { getAllTasks } from './db.js';
 import { loadJson, saveJson, escapeXml } from './utils.js';
 import { logger } from './logger.js';
+import { handleCommand } from './command-handler.js';
+import { getProviderManager } from './model-providers/index.js';
 
 export const TELEGRAM_GROUP_FOLDER = 'telegram';
 export const TELEGRAM_JID = 'telegram@bot';
@@ -137,12 +139,24 @@ export async function startTelegramBot(): Promise<void> {
     // Store the chat ID for IPC message sending
     defaultChatId = chatId;
 
+    // Handle /model commands
+    if (text.startsWith('/model')) {
+      const result = handleCommand(text, TELEGRAM_GROUP_FOLDER, false);
+      if (result.handled && result.response) {
+        await ctx.reply(result.response, { parse_mode: 'Markdown' }).catch(() => {
+          return ctx.reply(result.response!);
+        });
+      }
+      return;
+    }
+
     // Send typing indicator
     await ctx.sendChatAction('typing');
 
     try {
-      // Get or create session for this chat
-      const sessionKey = `telegram-${chatId}`;
+      // Get or create session for this chat (provider-aware to avoid cross-provider session issues)
+      const providerName = getProviderManager().getProviderForGroup(TELEGRAM_GROUP_FOLDER);
+      const sessionKey = `${providerName}-telegram-${chatId}`;
       const sessionId = telegramSessions[sessionKey];
 
       // Write tasks snapshot for the container
