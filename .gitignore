@@ -21,3 +21,14 @@ logs/
 .vscode/
 
 agents-sdk-docs
+
+# Ignore all hidden files and folders
+.*
+
+# Re-include the .gitignore file itself (otherwise it hides itself!)
+!.gitignore
+
+
+!.prettierrc
+!.env.example
+groups/discord/.gemini-session.json
