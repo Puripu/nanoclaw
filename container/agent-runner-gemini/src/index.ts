@@ -126,6 +126,62 @@ function fetchUrl(url: string, maxRedirects = 5): Promise<string> {
   });
 }
 
+// Brave Search API helper
+interface BraveSearchResult {
+  title: string;
+  url: string;
+  description: string;
+}
+
+async function braveSearch(query: string): Promise<BraveSearchResult[]> {
+  const apiKey = process.env.BRAVE_API_KEY;
+  if (!apiKey) {
+    throw new Error('BRAVE_API_KEY not configured');
+  }
+
+  return new Promise((resolve, reject) => {
+    const encodedQuery = encodeURIComponent(query);
+    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodedQuery}&count=10`;
+
+    const req = https.get(url, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Subscription-Token': apiKey
+      },
+      timeout: 15000
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`Brave API error: ${res.statusCode} ${res.statusMessage}`));
+        return;
+      }
+
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const results: BraveSearchResult[] = (json.web?.results || []).map((r: any) => ({
+            title: r.title || '',
+            url: r.url || '',
+            description: r.description || ''
+          }));
+          resolve(results);
+        } catch (err) {
+          reject(new Error(`Failed to parse Brave response: ${err}`));
+        }
+      });
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Brave search timed out'));
+    });
+  });
+}
+
 // Simple HTML to text converter
 function htmlToText(html: string): string {
   return html
@@ -402,8 +458,23 @@ async function executeToolCall(name: string, args: Record<string, string>, chatJ
       }
 
       case 'web_search': {
+        // Try Brave Search API first (faster and more reliable)
         try {
-          // Use agent-browser for search as it's more reliable than simple fetch
+          log(`Searching with Brave API: ${args.query}`);
+          const results = await braveSearch(args.query);
+          if (results.length > 0) {
+            const formatted = results.map((r, i) =>
+              `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.description}`
+            ).join('\n\n');
+            return `Search results for "${args.query}":\n\n${formatted}`;
+          }
+          log('Brave returned no results, falling back to browser');
+        } catch (err) {
+          log(`Brave search failed: ${err instanceof Error ? err.message : String(err)}, falling back to browser`);
+        }
+
+        // Fallback to agent-browser
+        try {
           const output = execSync(`agent-browser "search for ${args.query}"`, {
             encoding: 'utf-8',
             timeout: 60000,

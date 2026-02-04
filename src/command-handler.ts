@@ -3,12 +3,16 @@
  * Handles special commands like /model for switching AI providers
  */
 
+import fs from 'fs';
+import path from 'path';
 import { getProviderManager, ProviderFactory, ModelProviderName } from './model-providers/index.js';
+import { GROUPS_DIR, DATA_DIR } from './config.js';
 import { logger } from './logger.js';
 
 export interface CommandResult {
   handled: boolean;
   response?: string;
+  clearSession?: boolean;  // Signal to caller to clear session state
 }
 
 /**
@@ -28,7 +32,71 @@ export function handleCommand(
     return { handled: true, response };
   }
 
+  // Check for /clear or /reset command
+  if (trimmed === '/clear' || trimmed === '/reset') {
+    const response = handleClearCommand(groupFolder);
+    return { handled: true, response, clearSession: true };
+  }
+
+  // Check for /help command
+  if (trimmed === '/help') {
+    return { handled: true, response: getHelpText(isMain) };
+  }
+
   return { handled: false };
+}
+
+/**
+ * Handle /clear command - reset conversation context
+ */
+function handleClearCommand(groupFolder: string): string {
+  // Clear Gemini session file if it exists
+  const geminiSessionPath = path.join(GROUPS_DIR, groupFolder, '.gemini-session.json');
+  try {
+    if (fs.existsSync(geminiSessionPath)) {
+      fs.unlinkSync(geminiSessionPath);
+      logger.info({ groupFolder }, 'Cleared Gemini session file');
+    }
+  } catch (err) {
+    logger.error({ err, groupFolder }, 'Failed to clear Gemini session file');
+  }
+
+  // Clear Claude session directory contents
+  const claudeSessionDir = path.join(DATA_DIR, 'sessions', groupFolder, '.claude');
+  try {
+    if (fs.existsSync(claudeSessionDir)) {
+      const files = fs.readdirSync(claudeSessionDir);
+      for (const file of files) {
+        const filePath = path.join(claudeSessionDir, file);
+        const stat = fs.statSync(filePath);
+        if (stat.isFile()) {
+          fs.unlinkSync(filePath);
+        }
+      }
+      logger.info({ groupFolder }, 'Cleared Claude session directory');
+    }
+  } catch (err) {
+    logger.error({ err, groupFolder }, 'Failed to clear Claude session directory');
+  }
+
+  return `Context cleared. Starting fresh conversation.`;
+}
+
+/**
+ * Get help text for all commands
+ */
+function getHelpText(isMain: boolean): string {
+  let help = `*Available Commands*\n\n`;
+  help += `*/clear* or */reset* - Clear conversation history and start fresh\n`;
+  help += `*/model* - Show/switch AI model (claude or gemini)\n`;
+  help += `*/help* - Show this help message\n`;
+
+  if (isMain) {
+    help += `\n*Main group only:*\n`;
+    help += `*/model global <provider>* - Set default model for all groups\n`;
+  }
+
+  return help;
 }
 
 /**
