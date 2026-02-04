@@ -47,6 +47,9 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY agent-runner/package*.json ./
 
+# Ensure Gemini SDK is available
+RUN npm install @google/generative-ai
+
 # Install dependencies
 RUN npm install
 
