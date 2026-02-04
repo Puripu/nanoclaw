@@ -17,7 +17,6 @@ const ipv4Agent = new https.Agent({
 
 import { Telegraf, Context } from 'telegraf';
 import { message } from 'telegraf/filters';
-import pino from 'pino';
 import path from 'path';
 import fs from 'fs';
 
@@ -26,11 +25,7 @@ import { RegisteredGroup } from './types.js';
 import { runContainerAgent, writeTasksSnapshot } from './container-runner.js';
 import { getAllTasks } from './db.js';
 import { loadJson, saveJson, escapeXml } from './utils.js';
-
-const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
-  transport: { target: 'pino-pretty', options: { colorize: true } }
-});
+import { logger } from './logger.js';
 
 export const TELEGRAM_GROUP_FOLDER = 'telegram';
 export const TELEGRAM_JID = 'telegram@bot';

@@ -4,7 +4,6 @@ import makeWASocket, {
   makeCacheableSignalKeyStore,
   WASocket
 } from '@whiskeysockets/baileys';
-import pino from 'pino';
 import { exec, execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -25,19 +24,31 @@ import { startSchedulerLoop } from './task-scheduler.js';
 import { runContainerAgent, writeTasksSnapshot, writeGroupsSnapshot, AvailableGroup } from './container-runner.js';
 import { loadJson, saveJson, escapeXml } from './utils.js';
 import { startTelegramBot, sendTelegramMessage, sendTelegramPhoto, isTelegramJid, TELEGRAM_GROUP_FOLDER } from './telegram.js';
+import { logger } from './logger.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
-  transport: { target: 'pino-pretty', options: { colorize: true } }
-});
 
 let sock: WASocket;
 let lastTimestamp = '';
 let sessions: Session = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
+let lidToPhoneMap: Record<string, string> = {};
+
+/**
+ * Translate LID JID to phone JID.
+ * WhatsApp now sends LID JIDs for self-chat messages.
+ */
+function translateJid(jid: string): string {
+  if (!jid.endsWith('@lid')) return jid;
+  const lidUser = jid.split('@')[0].split(':')[0];
+  const phoneJid = lidToPhoneMap[lidUser];
+  if (phoneJid) {
+    logger.debug({ lidJid: jid, phoneJid }, 'Translated LID to phone JID');
+    return phoneJid;
+  }
+  return jid;
+}
 
 async function setTyping(jid: string, isTyping: boolean): Promise<void> {
   try {
@@ -555,6 +566,18 @@ async function connectWhatsApp(): Promise<void> {
       }
     } else if (connection === 'open') {
       logger.info('Connected to WhatsApp');
+
+      // Establish LID to phone mapping from auth state
+      if (sock.user) {
+        const lidUser = sock.user.lid?.split(':')[0];
+        const phoneUser = sock.user.id?.split(':')[0];
+        if (lidUser && phoneUser) {
+          const phoneJid = `${phoneUser}@s.whatsapp.net`;
+          lidToPhoneMap[lidUser] = phoneJid;
+          logger.info({ lidUser, phoneJid }, 'LID to phone mapping established');
+        }
+      }
+
       // Sync group metadata on startup (respects 24h cache)
       syncGroupMetadata().catch(err => logger.error({ err }, 'Initial group sync failed'));
       // Set up daily sync timer
@@ -577,9 +600,12 @@ async function connectWhatsApp(): Promise<void> {
     logger.debug({ count: messages.length, type }, 'messages.upsert event received');
     for (const msg of messages) {
       if (!msg.message) continue;
-      const chatJid = msg.key.remoteJid;
-      logger.debug({ chatJid, fromMe: msg.key.fromMe, hasMessage: !!msg.message }, 'Processing message');
-      if (!chatJid || chatJid === 'status@broadcast') continue;
+      const rawJid = msg.key.remoteJid;
+      if (!rawJid || rawJid === 'status@broadcast') continue;
+
+      // Translate LID JID to phone JID for self-chat messages
+      const chatJid = translateJid(rawJid);
+      logger.debug({ chatJid, rawJid, fromMe: msg.key.fromMe, hasMessage: !!msg.message }, 'Processing message');
 
       const timestamp = new Date(Number(msg.messageTimestamp) * 1000).toISOString();
 
