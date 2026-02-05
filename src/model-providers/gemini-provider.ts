@@ -63,11 +63,26 @@ export class GeminiProvider extends BaseModelProvider {
       const cmd = `${runtime} run --rm -i --name ${containerName} ${mounts.join(' ')} ${image}`;
 
       logger.debug({ group: request.groupFolder }, 'Starting Gemini agent container');
-      
-      const output = execSync(cmd, {
-        input: inputJson,
-        encoding: 'utf8',
-        maxBuffer: 10 * 1024 * 1024 // 10MB
+
+      const output = await new Promise<string>((resolve, reject) => {
+        const { exec } = await import('child_process');
+        const child = exec(cmd, {
+          maxBuffer: 10 * 1024 * 1024, // 10MB
+          timeout: 5 * 60 * 1000 // 5 minute timeout for agent execution
+        }, (error, stdout, stderr) => {
+          if (error) {
+            // Check if we got partial output that might contain JSON
+            if (stdout) resolve(stdout);
+            else reject(new Error(`Container execution failed: ${error.message}\nStderr: ${stderr}`));
+          } else {
+            resolve(stdout);
+          }
+        });
+
+        if (child.stdin) {
+          child.stdin.write(inputJson);
+          child.stdin.end();
+        }
       });
 
       try {
@@ -86,7 +101,7 @@ export class GeminiProvider extends BaseModelProvider {
       return { status: 'error', result: null, error: err.message };
     } finally {
       // Cleanup env file
-      try { fs.unlinkSync(path.join(envDir, 'env')); } catch {}
+      try { fs.unlinkSync(path.join(envDir, 'env')); } catch { }
     }
   }
 }
