@@ -10,6 +10,29 @@ import { execSync } from 'child_process';
 import https from 'https';
 import http from 'http';
 import { GoogleGenerativeAI, FunctionDeclaration, SchemaType, Part, Content } from '@google/generative-ai';
+import { chromium, BrowserContext, Page } from 'playwright';
+
+let browserContext: BrowserContext | null = null;
+let page: Page | null = null;
+
+async function ensureBrowser(): Promise<Page> {
+  if (!browserContext) {
+    const userDataDir = '/workspace/group/.gemini_browser_profile';
+    // Ensure directory exists
+    if (!fs.existsSync(userDataDir)) {
+      fs.mkdirSync(userDataDir, { recursive: true });
+    }
+
+    browserContext = await chromium.launchPersistentContext(userDataDir, {
+      headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    });
+
+    page = browserContext.pages()[0] || await browserContext.newPage();
+  }
+  return page!;
+}
 
 interface ContainerInput {
   prompt: string;
@@ -222,7 +245,7 @@ function loadSession(groupFolder: string): ConversationMessage[] {
     if (fs.existsSync(sessionPath)) {
       const data = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));
       const rawMessages = data.messages || [];
-      
+
       // Filter and validate history
       const cleanHistory: ConversationMessage[] = [];
       let expectedRole: 'user' | 'model' = 'user';
@@ -342,7 +365,7 @@ const tools: FunctionDeclaration[] = [
   },
   {
     name: 'web_search',
-    description: 'Search the web for information. Returns search results with titles, URLs, and snippets.',
+    description: 'Search the web using the official Brave Search API. This is the preferred way to find information.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -369,17 +392,57 @@ const tools: FunctionDeclaration[] = [
     }
   },
   {
-    name: 'use_browser',
-    description: 'Interact with a web browser to search, click, type, or read pages. Use this for any web-based tasks.',
+    name: 'browser_navigate',
+    description: 'Navigate the browser to a URL',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        command: {
-          type: SchemaType.STRING,
-          description: "The agent-browser command (e.g., 'search for weather in London', 'click @e1', 'go to https://github.com')"
-        }
+        url: { type: SchemaType.STRING, description: 'The URL to navigate to' }
       },
-      required: ['command']
+      required: ['url']
+    }
+  },
+  {
+    name: 'browser_click',
+    description: 'Click an element on the page using a CSS selector',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        selector: { type: SchemaType.STRING, description: 'CSS selector for the element' }
+      },
+      required: ['selector']
+    }
+  },
+  {
+    name: 'browser_input',
+    description: 'Fill a form field with text',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        selector: { type: SchemaType.STRING, description: 'CSS selector for the input field' },
+        value: { type: SchemaType.STRING, description: 'The text value to enter' }
+      },
+      required: ['selector', 'value']
+    }
+  },
+  {
+    name: 'browser_screenshot',
+    description: 'Take a screenshot of the current page',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        path: { type: SchemaType.STRING, description: 'Path to save the screenshot (e.g., screenshot.png)' }
+      },
+      required: ['path']
+    }
+  },
+  {
+    name: 'browser_content',
+    description: 'Get the text content of the current page (simplified for reading)',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {},
+      required: []
     }
   }
 ];
@@ -442,48 +505,75 @@ async function executeToolCall(name: string, args: Record<string, string>, chatJ
         return `Message queued for sending`;
       }
 
-      case 'use_browser': {
+      case 'browser_navigate': {
         try {
-          const output = execSync(`agent-browser "${args.command}"`, {
-            encoding: 'utf-8',
-            timeout: 60000,
-            cwd: '/workspace/group',
-            maxBuffer: 10 * 1024 * 1024
-          });
-          return output;
-        } catch (err: unknown) {
-          const execError = err as { stderr?: string; message: string };
-          return `Browser error: ${execError.stderr || execError.message}`;
+          const page = await ensureBrowser();
+          await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          return `Navigated to ${args.url}`;
+        } catch (err) {
+          return `Navigation failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case 'browser_click': {
+        try {
+          const page = await ensureBrowser();
+          await page.click(args.selector, { timeout: 10000 });
+          return `Clicked ${args.selector}`;
+        } catch (err) {
+          return `Click failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case 'browser_input': {
+        try {
+          const page = await ensureBrowser();
+          await page.fill(args.selector, args.value, { timeout: 10000 });
+          return `Filled ${args.selector} with "${args.value}"`;
+        } catch (err) {
+          return `Input failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case 'browser_screenshot': {
+        try {
+          const page = await ensureBrowser();
+          const filePath = args.path.startsWith('/') ? args.path : path.join('/workspace/group', args.path);
+          await page.screenshot({ path: filePath, fullPage: true });
+          return `Screenshot saved to ${filePath}`;
+        } catch (err) {
+          return `Screenshot failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case 'browser_content': {
+        try {
+          const page = await ensureBrowser();
+          const content = await page.innerText('body');
+          return content.length > 50000 ? content.slice(0, 50000) + '\n...(truncated)' : content;
+        } catch (err) {
+          return `Get content failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
 
       case 'web_search': {
-        // Try Brave Search API first (faster and more reliable)
+        // Use Brave Search API (reliable, paid/official API)
         try {
           log(`Searching with Brave API: ${args.query}`);
           const results = await braveSearch(args.query);
+
           if (results.length > 0) {
             const formatted = results.map((r, i) =>
               `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.description}`
             ).join('\n\n');
-            return `Search results for "${args.query}":\n\n${formatted}`;
+            return `Search results for "${args.query}" (via Brave API):\n\n${formatted}`;
+          } else {
+            return `No results found for "${args.query}" via Brave API.`;
           }
-          log('Brave returned no results, falling back to browser');
         } catch (err) {
-          log(`Brave search failed: ${err instanceof Error ? err.message : String(err)}, falling back to browser`);
-        }
-
-        // Fallback to agent-browser
-        try {
-          const output = execSync(`agent-browser "search for ${args.query}"`, {
-            encoding: 'utf-8',
-            timeout: 60000,
-            cwd: '/workspace/group'
-          });
-          return output;
-        } catch (err: unknown) {
-          const execError = err as { stderr?: string; message: string };
-          return `Search error: ${execError.stderr || execError.message}`;
+          const msg = `Brave Search API failed: ${err instanceof Error ? err.message : String(err)}`;
+          log(msg);
+          return `Error: ${msg}\n\nPlease check if BRAVE_API_KEY is configured correctly in the environment.`;
         }
       }
 
@@ -636,6 +726,10 @@ async function main(): Promise<void> {
       sessionId: `gemini-${input.groupFolder}`
     });
 
+    if (browserContext) {
+      await browserContext.close();
+    }
+
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log(`Gemini error: ${errorMessage}`);
@@ -679,8 +773,12 @@ You have these tools available:
 - run_command: Execute shell commands
 - list_files: List directory contents
 - send_message: Send a message to the chat (useful for scheduled tasks)
-- use_browser: Interact with a web browser (search, click, type, read)
-- web_search: Search the web for information
+- browser_navigate: Open a URL
+- browser_click: Click an element (CSS selector)
+- browser_input: Fill a form field (CSS selector)
+- browser_screenshot: Take a screenshot
+- browser_content: Read page text
+- web_search: Search the web using Brave Search API (PREFERRED for information gathering)
 - web_fetch: Fetch and read the text content of a webpage
 
 Keep responses concise but helpful. Use tools when needed to accomplish tasks.
