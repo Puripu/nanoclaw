@@ -120,6 +120,9 @@ The Gemini agent has these tools:
 - `list_files` - List directory contents
 - `send_message` - Send messages to the chat
 
+**Important Difference from Claude:**
+Gemini does **not** automatically index your codebase or load files into context. While Claude (via Claude Code) maintains an index of your project, Gemini only sees what you explicitly ask it to list or read. You may need to guide it: "List the files in this folder" or "Read package.json".
+
 Note: Gemini has fewer tools than Claude (no browser automation, no web search). For complex tasks requiring many tools, use Claude.
 
 ## Getting a Google API Key

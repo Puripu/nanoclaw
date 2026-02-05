@@ -581,8 +581,16 @@ async function main(): Promise<void> {
         break;
       }
 
+      // Safely get parts array (may be undefined in some responses)
+      const parts = candidate.content?.parts || [];
+
+      if (parts.length === 0) {
+        log('No parts in response, ending');
+        break;
+      }
+
       // Check for function calls
-      const functionCalls = candidate.content.parts.filter(p => 'functionCall' in p);
+      const functionCalls = parts.filter(p => 'functionCall' in p);
 
       if (functionCalls.length > 0) {
         log(`Executing ${functionCalls.length} tool calls...`);
@@ -611,7 +619,7 @@ async function main(): Promise<void> {
         response = await withRetry(() => chat.sendMessage(toolResults));
       } else {
         // No function calls, get text response
-        const textParts = candidate.content.parts.filter(p => 'text' in p);
+        const textParts = parts.filter(p => 'text' in p);
         result = textParts.map(p => 'text' in p ? p.text : '').join('');
         break;
       }
@@ -648,11 +656,23 @@ function getSystemPrompt(groupFolder: string, isMain: boolean, isScheduledTask: 
     claudeMd = fs.readFileSync(claudeMdPath, 'utf-8');
   }
 
+  let projectInfo = '';
+  if (isMain) {
+    projectInfo = `
+You have FULL ACCESS to the NanoClaw project at /workspace/project.
+You can read, modify, and improve the codebase:
+- Source code is in /workspace/project/src/
+- Container agents are in /workspace/project/container/
+- After modifying TypeScript files, run "npm run build" in /workspace/project
+- After modifying container code, rebuild with "./build-all.sh" in /workspace/project/container
+
+`;
+  }
+
   return `You are a helpful AI assistant running in the NanoClaw system.
 
 Your workspace is at /workspace/group - you can read and write files there.
-${isMain ? 'You have access to the project at /workspace/project.' : ''}
-
+${projectInfo}
 You have these tools available:
 - read_file: Read file contents
 - write_file: Write content to files
