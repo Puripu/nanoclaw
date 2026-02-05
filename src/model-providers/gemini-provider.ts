@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { BaseModelProvider, AgentRequest, AgentResponse, ModelProviderContext, ModelProviderName } from './types.js';
-import { DATA_DIR, GROUPS_DIR } from '../config.js';
+import { DATA_DIR, GROUPS_DIR, MAIN_GROUP_FOLDER } from '../config.js';
 import { logger } from '../logger.js';
 
 export class GeminiProvider extends BaseModelProvider {
@@ -13,6 +13,9 @@ export class GeminiProvider extends BaseModelProvider {
   async runAgent(request: AgentRequest, context: ModelProviderContext): Promise<AgentResponse> {
     const groupDir = path.join(GROUPS_DIR, request.groupFolder);
     const envDir = path.join(groupDir, '.env-dir');
+    const projectRoot = process.cwd();
+    const isMain = request.isMain || request.groupFolder === MAIN_GROUP_FOLDER;
+
     fs.mkdirSync(envDir, { recursive: true });
 
     // Write environment variables for the container
@@ -26,27 +29,38 @@ export class GeminiProvider extends BaseModelProvider {
     const inputJson = JSON.stringify(request);
     const containerName = `nanoclaw-gemini-${request.groupFolder}-${Date.now()}`;
 
+    // Ensure IPC directory exists
+    const ipcDir = path.join(DATA_DIR, 'ipc', request.groupFolder);
+    fs.mkdirSync(path.join(ipcDir, 'messages'), { recursive: true });
+    fs.mkdirSync(path.join(ipcDir, 'tasks'), { recursive: true });
+
     try {
       // Determine container runtime (preferring Docker as per requirements for Linux/Generic)
       const runtime = process.platform === 'darwin' ? 'container' : 'docker';
       const image = process.env.GEMINI_CONTAINER_IMAGE || 'nanoclaw-agent-gemini:latest';
-      
-      let cmd = '';
+
+      // Build volume mounts
+      const mounts: string[] = [];
+
       if (runtime === 'docker') {
-        cmd = `docker run --rm -i \
-          --name ${containerName} \
-          -v "${groupDir}:/workspace/group" \
-          -v "${path.join(DATA_DIR, 'ipc', request.groupFolder)}:/workspace/ipc" \
-          -v "${envDir}:/workspace/env-dir" \
-          ${image}`;
+        // Main group gets access to the entire project
+        if (isMain) {
+          mounts.push(`-v "${projectRoot}:/workspace/project"`);
+        }
+        mounts.push(`-v "${groupDir}:/workspace/group"`);
+        mounts.push(`-v "${ipcDir}:/workspace/ipc"`);
+        mounts.push(`-v "${envDir}:/workspace/env-dir"`);
       } else {
-        cmd = `container run --rm -i \
-          --name ${containerName} \
-          --mount type=bind,source="${groupDir}",target=/workspace/group \
-          --mount type=bind,source="${path.join(DATA_DIR, 'ipc', request.groupFolder)}",target=/workspace/ipc \
-          --mount type=bind,source="${envDir}",target=/workspace/env-dir \
-          ${image}`;
+        // Apple Container uses --mount syntax
+        if (isMain) {
+          mounts.push(`--mount type=bind,source="${projectRoot}",target=/workspace/project`);
+        }
+        mounts.push(`--mount type=bind,source="${groupDir}",target=/workspace/group`);
+        mounts.push(`--mount type=bind,source="${ipcDir}",target=/workspace/ipc`);
+        mounts.push(`--mount type=bind,source="${envDir}",target=/workspace/env-dir`);
       }
+
+      const cmd = `${runtime} run --rm -i --name ${containerName} ${mounts.join(' ')} ${image}`;
 
       logger.debug({ group: request.groupFolder }, 'Starting Gemini agent container');
       

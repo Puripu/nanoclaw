@@ -189,7 +189,7 @@ function getModelHelp(isMain: boolean): string {
     help += `• /model global <claude|gemini> - Set global default\n`;
   }
 
-  help += `\nClaude is best for coding tasks. Gemini is faster and cheaper for general questions.`;
+  help += `\nClaude is best for coding (indexes files). Gemini is faster/cheaper (manual file access).`;
 
   return help;
 }
