@@ -19,7 +19,7 @@ import {
   TIMEZONE
 } from './config.js';
 import { RegisteredGroup, Session, NewMessage } from './types.js';
-import { initDatabase, storeMessage, storeChatMetadata, getNewMessages, getMessagesSince, getAllTasks, getTaskById, updateChatName, getAllChats, getLastGroupSync, setLastGroupSync } from './db.js';
+import { initDatabase, storeMessage, storeChatMetadata, getNewMessages, getMessagesSince, getAllTasks, updateChatName, getAllChats, getLastGroupSync, setLastGroupSync } from './db.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { runContainerAgent, writeTasksSnapshot, writeGroupsSnapshot, AvailableGroup } from './container-runner.js';
 import { loadJson, saveJson, escapeXml } from './utils.js';
@@ -27,7 +27,6 @@ import { startTelegramBot, sendTelegramMessage, sendTelegramPhoto, isTelegramJid
 import { startDiscordBot, sendDiscordMessage, sendDiscordPhoto, isDiscordJid, DISCORD_GROUP_FOLDER } from './discord.js';
 import { logger } from './logger.js';
 import { handleCommand } from './command-handler.js';
-import { getProviderManager } from './model-providers/index.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -36,7 +35,7 @@ let lastTimestamp = '';
 let sessions: Session = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
-let lidToPhoneMap: Record<string, string> = {};
+const lidToPhoneMap: Record<string, string> = {};
 
 /**
  * Translate LID JID to phone JID.
@@ -211,7 +210,7 @@ async function runAgent(group: RegisteredGroup, prompt: string, chatJid: string)
 
   // Update available groups snapshot (main group only can see all groups)
   const availableGroups = getAvailableGroups();
-  writeGroupsSnapshot(group.folder, isMain, availableGroups, new Set(Object.keys(registeredGroups)));
+  writeGroupsSnapshot(group.folder, isMain, availableGroups);
 
   try {
     const output = await runContainerAgent(group, {
@@ -299,7 +298,7 @@ function startIpcWatcher(): void {
                 if (isTelegramJid(data.chatJid) || sourceGroup === TELEGRAM_GROUP_FOLDER) {
                   await sendTelegramMessage(data.chatJid, `${ASSISTANT_NAME}: ${data.text}`);
                   logger.info({ chatJid: data.chatJid, sourceGroup }, 'IPC Telegram message sent');
-                // Check if this is a Discord message
+                  // Check if this is a Discord message
                 } else if (isDiscordJid(data.chatJid) || sourceGroup === DISCORD_GROUP_FOLDER) {
                   await sendDiscordMessage(data.chatJid, `${ASSISTANT_NAME}: ${data.text}`);
                   logger.info({ chatJid: data.chatJid, sourceGroup }, 'IPC Discord message sent');
@@ -514,7 +513,7 @@ async function processTaskIpc(
         // Write updated snapshot immediately
         const availableGroups = getAvailableGroups();
         const { writeGroupsSnapshot: writeGroups } = await import('./container-runner.js');
-        writeGroups(sourceGroup, true, availableGroups, new Set(Object.keys(registeredGroups)));
+        writeGroups(sourceGroup, true, availableGroups);
       } else {
         logger.warn({ sourceGroup }, 'Unauthorized refresh_groups attempt blocked');
       }
@@ -683,7 +682,7 @@ function ensureContainerSystemRunning(): void {
     execSync('docker info', { stdio: 'pipe', timeout: 10000 });
     logger.info('Container runtime: docker');
     return;
-  } catch (dockerErr) {
+  } catch (_dockerErr) {
     // Try full path fallback
     try {
       execSync('/usr/bin/docker info', { stdio: 'pipe', timeout: 10000 });

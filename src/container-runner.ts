@@ -11,8 +11,7 @@ import { logger } from './logger.js';
 import {
   ProviderFactory,
   getProviderManager,
-  AgentRequest,
-  AgentResponse
+  AgentRequest
 } from './model-providers/index.js';
 
 export interface ContainerInput {
@@ -113,8 +112,7 @@ export interface AvailableGroup {
 export function writeGroupsSnapshot(
   groupFolder: string,
   isMain: boolean,
-  groups: AvailableGroup[],
-  registeredJids: Set<string>
+  groups: AvailableGroup[]
 ): void {
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });

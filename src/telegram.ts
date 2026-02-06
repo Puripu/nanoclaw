@@ -15,7 +15,7 @@ const ipv4Agent = new https.Agent({
   keepAlive: true
 });
 
-import { Telegraf, Context } from 'telegraf';
+import { Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters';
 import path from 'path';
 import fs from 'fs';

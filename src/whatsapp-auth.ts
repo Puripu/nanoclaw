@@ -15,7 +15,6 @@ import makeWASocket, {
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import fs from 'fs';
-import path from 'path';
 
 const AUTH_DIR = './store/auth';
 

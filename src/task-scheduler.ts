@@ -3,7 +3,7 @@ import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
 import { getDueTasks, updateTaskAfterRun, logTaskRun, getTaskById, getAllTasks } from './db.js';
 import { ScheduledTask, RegisteredGroup } from './types.js';
-import { GROUPS_DIR, SCHEDULER_POLL_INTERVAL, DATA_DIR, MAIN_GROUP_FOLDER, TIMEZONE } from './config.js';
+import { GROUPS_DIR, SCHEDULER_POLL_INTERVAL, MAIN_GROUP_FOLDER, TIMEZONE } from './config.js';
 import { runContainerAgent, writeTasksSnapshot } from './container-runner.js';
 import { logger } from './logger.js';
 
