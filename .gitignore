@@ -32,3 +32,4 @@ agents-sdk-docs
 !.prettierrc
 !.env.example
 groups/discord/.gemini-session.json
+groups/discord/.gemini-session.json
