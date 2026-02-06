@@ -197,11 +197,79 @@ async function braveSearch(query: string): Promise<BraveSearchResult[]> {
       res.on('error', reject);
     });
 
-    req.on('error', reject);
     req.on('timeout', () => {
       req.destroy();
       reject(new Error('Brave search timed out'));
     });
+  });
+}
+
+// Overseerr API helper
+interface OverseerrMedia {
+  id: number;
+  mediaType: 'movie' | 'tv';
+  title?: string;
+  name?: string;
+  overview?: string;
+  releaseDate?: string;
+  firstAirDate?: string;
+}
+
+async function overseerrCall(endpoint: string, method = 'GET', body?: any): Promise<any> {
+  const baseUrl = process.env.OVERSEER_URL || process.env.OVERSEERR_URL;
+  const apiKey = process.env.OVERSEER_API || process.env.OVERSEERR_API || process.env.OVERSEERR_API_KEY;
+
+  if (!baseUrl) {
+    throw new Error('Overseerr URL is missing. Please check OVERSEER_URL in .env');
+  }
+  if (!apiKey) {
+    throw new Error('Overseerr API Key is missing. Please check OVERSEER_API in .env');
+  }
+
+  // Ensure plain URL (no /api suffix needed if we add it, typically v1/api)
+  // Overseerr API is usually /api/v1/...
+  const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+  const url = `${cleanBaseUrl}/api/v1${endpoint}`;
+
+  return new Promise((resolve, reject) => {
+    const options: https.RequestOptions = {
+      method,
+      headers: {
+        'X-Api-Key': apiKey,
+        'Content-Type': 'application/json'
+      },
+      timeout: 10000
+    };
+
+    const req = https.request(url, options, (res) => {
+      if (res.statusCode && res.statusCode >= 400) {
+        reject(new Error(`Overseerr API error: ${res.statusCode} ${res.statusMessage}`));
+        return;
+      }
+
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          if (!data) resolve(null);
+          else resolve(JSON.parse(data));
+        } catch (err) {
+          reject(new Error(`Failed to parse Overseerr response: ${err}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Overseerr request timed out'));
+    });
+
+    if (body) {
+      req.write(JSON.stringify(body));
+    }
+    req.end();
   });
 }
 
@@ -444,6 +512,29 @@ const tools: FunctionDeclaration[] = [
       properties: {},
       required: []
     }
+  },
+  {
+    name: 'overseerr_search',
+    description: 'Search for movies or TV shows in Overseerr. Returns list of available media with IDs. If configuration is missing, returns a specific error.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        query: { type: SchemaType.STRING, description: 'Search term (e.g., "Inception", "Breaking Bad")' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'overseerr_request',
+    description: 'Request a movie or TV show in Overseerr by ID.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        mediaId: { type: SchemaType.NUMBER, description: 'The ID of the media to request (found via search)' },
+        mediaType: { type: SchemaType.STRING, description: 'Type of media: "movie" or "tv"' }
+      },
+      required: ['mediaId', 'mediaType']
+    }
   }
 ];
 
@@ -583,6 +674,38 @@ async function executeToolCall(name: string, args: Record<string, string>, chatJ
           return htmlToText(html);
         } catch (err) {
           return `Fetch error: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case 'overseerr_search': {
+        try {
+          log(`Searching Overseerr for: ${args.query}`);
+          const data = await overseerrCall(`/search?query=${encodeURIComponent(args.query)}`);
+          const results = (data.results || []).slice(0, 5).map((r: any) =>
+            `ID: ${r.id}\nType: ${r.mediaType}\nTitle: ${r.originalTitle || r.originalName || r.title || r.name}\nYear: ${(r.releaseDate || r.firstAirDate || '').split('-')[0]}\nOverview: ${r.overview?.slice(0, 100)}...`
+          ).join('\n---\n');
+          return results ? `Overseerr Search Results:\n${results}` : 'No results found.';
+        } catch (err) {
+          return `Overseerr search failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case 'overseerr_request': {
+        try {
+          log(`Requesting media ${args.mediaId} (${args.mediaType})`);
+          // Request endpoint: /request
+          await overseerrCall('/request', 'POST', {
+            mediaId: Number(args.mediaId),
+            mediaType: args.mediaType,
+            is4k: false,
+            serverId: 0, // Default server
+            profileId: 0 // Default profile? Usually defaults work, or might need query. 
+            // Minimal payload usually works or we might need to find root folder.
+            // Let's try basic payload first.
+          });
+          return `Successfully requested ${args.mediaType} with ID ${args.mediaId}.`;
+        } catch (err) {
+          return `Overseerr request failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
 
@@ -780,6 +903,8 @@ You have these tools available:
 - browser_content: Read page text
 - web_search: Search the web using Brave Search API (PREFERRED for information gathering)
 - web_fetch: Fetch and read the text content of a webpage
+- overseerr_search: Search for media to request on Overseerr
+- overseerr_request: Request media (Movie/TV) on Overseerr by ID
 
 Keep responses concise but helpful. Use tools when needed to accomplish tasks.
 

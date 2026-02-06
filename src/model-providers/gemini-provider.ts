@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execSync, exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { BaseModelProvider, AgentRequest, AgentResponse, ModelProviderContext, ModelProviderName } from './types.js';
@@ -24,6 +24,8 @@ export class GeminiProvider extends BaseModelProvider {
     if (process.env.GOOGLE_API_KEY) envLines.push(`GOOGLE_API_KEY=${process.env.GOOGLE_API_KEY}`);
     if (process.env.GEMINI_API_KEY) envLines.push(`GEMINI_API_KEY=${process.env.GEMINI_API_KEY}`);
     if (process.env.BRAVE_API_KEY) envLines.push(`BRAVE_API_KEY=${process.env.BRAVE_API_KEY}`);
+    if (process.env.OVERSEER_URL) envLines.push(`OVERSEER_URL=${process.env.OVERSEER_URL}`);
+    if (process.env.OVERSEER_API) envLines.push(`OVERSEER_API=${process.env.OVERSEER_API}`);
     fs.writeFileSync(path.join(envDir, 'env'), envLines.join('\n') + '\n');
 
     const inputJson = JSON.stringify(request);
@@ -64,12 +66,21 @@ export class GeminiProvider extends BaseModelProvider {
 
       logger.debug({ group: request.groupFolder }, 'Starting Gemini agent container');
 
+      // Debug logging for Overseerr Env Vars
+      const overseerUrl = process.env.OVERSEER_URL || process.env.OVERSEERR_URL;
+      const overseerApi = process.env.OVERSEER_API || process.env.OVERSEER_API || process.env.OVERSEERR_API_KEY; // check for typo in env
+      if (overseerUrl) logger.debug('Overseerr URL found in environment');
+      else logger.warn('Overseerr URL NOT found in environment');
+
+      if (overseerApi) logger.debug('Overseerr API Key found in environment');
+      else logger.warn('Overseerr API Key NOT found in environment');
+
       const output = await new Promise<string>((resolve, reject) => {
-        const { exec } = await import('child_process');
+        // const { exec } = await import('child_process'); // Removed dynamic import
         const child = exec(cmd, {
           maxBuffer: 10 * 1024 * 1024, // 10MB
           timeout: 5 * 60 * 1000 // 5 minute timeout for agent execution
-        }, (error, stdout, stderr) => {
+        }, (error: Error | null, stdout: string, stderr: string) => {
           if (error) {
             // Check if we got partial output that might contain JSON
             if (stdout) resolve(stdout);

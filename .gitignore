@@ -1,35 +1,66 @@
+# -----------------------------------------------------------------------
+# NANOCLAW CORE IGNORE RULES
+# -----------------------------------------------------------------------
+
 # Dependencies
 node_modules/
+package-lock.json
 
 # Build output
 dist/
+*.tsbuildinfo
 
-# Local data & auth
+# Local data, databases, and logs
 store/
 data/
 logs/
+*.log
 
-# Secrets
-*.keys.json
+# -----------------------------------------------------------------------
+# SECRETS & AUTH (CRITICAL)
+# -----------------------------------------------------------------------
+# Ignore all environment files in any directory
 .env
+.env.local
+.env.*.local
+*.keys.json
 
-# OS
-.DS_Store
+# Allow the template file for others to use
+!.env.example
 
-# IDE
-.idea/
-.vscode/
-
-agents-sdk-docs
-
-# Ignore all hidden files and folders
+# -----------------------------------------------------------------------
+# HIDDEN FILE LOGIC (THE "DOT" RULES)
+# -----------------------------------------------------------------------
+# Step 1: Ignore all hidden files and folders by default
 .*
 
-# Re-include the .gitignore file itself (otherwise it hides itself!)
+# Step 2: Re-include essential configuration files
 !.gitignore
-
-
 !.prettierrc
-!.env.example
-groups/discord/.gemini-session.json
-groups/discord/.gemini-session.json
+!.mcp.json
+!.eslintrc*
+!.gitattributes
+
+# -----------------------------------------------------------------------
+# AI AGENT & GROUP SPECIFIC (JULES/CLAUDE/BOB)
+# -----------------------------------------------------------------------
+# Block sensitive AI history and settings in all group subfolders
+groups/*/.gemini-session.json
+groups/*/.claude/
+groups/*/logs/
+
+# -----------------------------------------------------------------------
+# SYSTEM & IDE
+# -----------------------------------------------------------------------
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific documentation
+agents-sdk-docs
