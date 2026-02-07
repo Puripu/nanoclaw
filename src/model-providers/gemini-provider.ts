@@ -104,27 +104,14 @@ function buildVolumeMounts(group: RegisteredGroup, isMain: boolean): VolumeMount
   });
 
   // Environment file directory for Gemini auth
-  const envDir = path.join(DATA_DIR, 'env');
-  fs.mkdirSync(envDir, { recursive: true });
+  // Directly mount the project .env file if it exists
+  // This avoids creating copies and ensures consistency
+  const envFile = path.join(process.cwd(), '.env');
 
-  // Create env file content
-  const envLines: string[] = [];
-  if (process.env.GOOGLE_API_KEY) envLines.push(`GOOGLE_API_KEY=${process.env.GOOGLE_API_KEY}`);
-  if (process.env.GEMINI_API_KEY) envLines.push(`GEMINI_API_KEY=${process.env.GEMINI_API_KEY}`);
-  if (process.env.BRAVE_API_KEY) envLines.push(`BRAVE_API_KEY=${process.env.BRAVE_API_KEY}`);
-
-  // Standardize Overseerr env vars
-  const overseerUrl = process.env.OVERSEER_URL || process.env.OVERSEERR_URL;
-  const overseerApi = process.env.OVERSEER_API || process.env.OVERSEER_API_KEY || process.env.OVERSEERR_API_KEY;
-
-  if (overseerUrl) envLines.push(`OVERSEER_URL=${overseerUrl}`);
-  if (overseerApi) envLines.push(`OVERSEER_API=${overseerApi}`);
-
-  if (envLines.length > 0) {
-    fs.writeFileSync(path.join(envDir, 'gemini.env'), envLines.join('\n') + '\n');
+  if (fs.existsSync(envFile)) {
     mounts.push({
-      hostPath: envDir,
-      containerPath: '/workspace/env-dir',
+      hostPath: envFile,
+      containerPath: '/workspace/env-dir/env',
       readonly: true
     });
   }
@@ -289,8 +276,8 @@ export class GeminiProvider extends BaseModelProvider {
           );
         } else if (code !== 0) {
           logLines.push(
-            `=== Stderr (last 500 chars) ===`,
-            stderr.slice(-500)
+            `=== Stderr (last 4000 chars) ===`,
+            stderr.slice(-4000)
           );
         }
 
@@ -308,7 +295,7 @@ export class GeminiProvider extends BaseModelProvider {
           resolve({
             status: 'error',
             result: null,
-            error: `Gemini container exited with code ${code}.\n\nLast stderr:\n${stderr.slice(-1000)}`
+            error: `Gemini container exited with code ${code}.\n\nLast stderr:\n${stderr.slice(-4000)}`
           });
           return;
         }

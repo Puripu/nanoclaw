@@ -239,7 +239,9 @@ export async function startTelegramBot(): Promise<void> {
   });
 
   // Launch bot
-  bot.launch();
+  bot.launch().catch(err => {
+    logger.error({ err }, 'Telegram bot failed to launch');
+  });
   logger.info('Telegram bot started');
 
   // Store bot instance for IPC

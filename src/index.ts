@@ -26,6 +26,7 @@ import { loadJson, saveJson, escapeXml } from './utils.js';
 import { startTelegramBot, sendTelegramMessage, sendTelegramPhoto, isTelegramJid, TELEGRAM_GROUP_FOLDER } from './telegram.js';
 import { startDiscordBot, sendDiscordMessage, sendDiscordPhoto, isDiscordJid, DISCORD_GROUP_FOLDER } from './discord.js';
 import { logger } from './logger.js';
+import { startDashboard } from './dashboard/server.js';
 import { handleCommand } from './command-handler.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -736,6 +737,9 @@ async function main(): Promise<void> {
   initDatabase();
   logger.info('Database initialized');
   loadState();
+
+  // Start Dashboard
+  startDashboard(3000);
 
   // Start Telegram bot (non-blocking, runs alongside WhatsApp)
   startTelegramBot().catch(err => {

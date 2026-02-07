@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NanoClaw Dashboard</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e1e; color: #f0f0f0; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .card { background-color: #2d2d2d; border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        h1 { text-align: center; margin-bottom: 30px; color: #61dafb; }
+        h2 { border-bottom: 1px solid #444; padding-bottom: 10px; margin-top: 0; }
+        .status-item { display: flex; justify-content: space-between; margin-bottom: 10px; }
+        .status-value { font-weight: bold; }
+        .good { color: #4caf50; }
+        .bad { color: #f44336; }
+        .warn { color: #ff9800; }
+    </style>
+</head>
+<body>
+    <h1>NanoClaw Dashboard</h1>
+    <div class="container">
+        <div class="card">
+            <h2>System Status</h2>
+            <div class="status-item"><span>Uptime:</span> <span id="uptime" class="status-value">-</span></div>
+            <div class="status-item"><span>Memory (RSS):</span> <span id="memory-rss" class="status-value">-</span></div>
+            <div class="status-item"><span>External IP:</span> <span id="external-ip" class="status-value">-</span></div>
+            <div class="status-item"><span>Load Avg:</span> <span id="load-avg" class="status-value">-</span></div>
+        </div>
+
+        <div class="card">
+            <h2>AI Providers</h2>
+            <div class="status-item"><span>Gemini:</span> <span id="provider-gemini" class="status-value">-</span></div>
+            <div class="status-item"><span>Claude:</span> <span id="provider-claude" class="status-value">-</span></div>
+            <div class="status-item"><span>Telegram:</span> <span id="provider-telegram" class="status-value">-</span></div>
+        </div>
+
+        <div class="card">
+            <h2>File Checks</h2>
+            <div class="status-item"><span>Heartbeat:</span> <span id="file-heartbeat" class="status-value">-</span></div>
+            <div class="status-item"><span>CLAUDE.md:</span> <span id="file-claude" class="status-value">-</span></div>
+        </div>
+    </div>
+
+    <script>
+        function formatBytes(bytes, decimals = 2) {
+            if (!+bytes) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        }
+
+        function formatUptime(seconds) {
+            const d = Math.floor(seconds / (3600*24));
+            const h = Math.floor(seconds % (3600*24) / 3600);
+            const m = Math.floor(seconds % 3600 / 60);
+            const s = Math.floor(seconds % 60);
+            return `${d}d ${h}h ${m}m ${s}s`;
+        }
+
+        async function updateStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+
+                // System
+                document.getElementById('uptime').textContent = formatUptime(data.system.uptime);
+                document.getElementById('memory-rss').textContent = formatBytes(data.system.memory.rss);
+                document.getElementById('external-ip').textContent = data.system.ip || 'Unavailable';
+                document.getElementById('load-avg').textContent = data.system.loadavg.join(', ');
+
+                // Providers
+                const setProviderStatus = (id, status) => {
+                    const el = document.getElementById(id);
+                    el.textContent = status ? 'Active' : 'Inactive';
+                    el.className = `status-value ${status ? 'good' : 'bad'}`;
+                };
+                setProviderStatus('provider-gemini', data.application.providers.gemini);
+                setProviderStatus('provider-claude', data.application.providers.claude);
+                setProviderStatus('provider-telegram', data.application.providers.telegram);
+
+                // Files
+                const setFileStatus = (id, status) => {
+                    const el = document.getElementById(id);
+                    if (status.exists) {
+                        el.textContent = `Exists (${formatBytes(status.size)})`;
+                        el.className = 'status-value good';
+                    } else {
+                        el.textContent = 'Missing';
+                        el.className = 'status-value bad';
+                    }
+                };
+                setFileStatus('file-heartbeat', data.application.files.heartbeat);
+                setFileStatus('file-claude', data.application.files.claudeMd);
+
+            } catch (err) {
+                console.error('Failed to fetch status', err);
+            }
+        }
+
+        // Initial update
+        updateStatus();
+        // Poll every 5 seconds
+        setInterval(updateStatus, 5000);
+    </script>
+</body>
+</html>
