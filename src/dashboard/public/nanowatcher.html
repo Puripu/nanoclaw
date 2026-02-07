@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NanoWatcher | Agent Observability Code</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        obsidian: '#0b0b0f',
+                        charcoal: '#13131a',
+                        neon: '#00f2ea',
+                        danger: '#ff0055',
+                        success: '#00ff9d',
+                        warning: '#ffb700'
+                    },
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'Fira Code', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0b0b0f;
+            color: #e2e8f0;
+        }
+
+        .grid-bg {
+            background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .scroll-hide::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
+</head>
+
+<body class="grid-bg min-h-screen font-mono text-sm antialiased selection:bg-neon selection:text-obsidian">
+
+    <!-- Top Bar -->
+    <header
+        class="fixed top-0 w-full z-50 bg-obsidian/90 backdrop-blur border-b border-gray-800 h-14 flex items-center px-6 justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-3 h-3 rounded-full bg-neon animate-pulse"></div>
+            <h1 class="font-bold tracking-wider text-neon">NANOWATCHER <span
+                    class="text-xs text-gray-500 font-normal">v1.1</span></h1>
+        </div>
+        <div class="flex gap-6 text-xs text-gray-400">
+            <div class="flex gap-2 items-center">
+                <span>STATUS:</span>
+                <span class="text-success">ONLINE</span>
+            </div>
+            <div class="flex gap-2 items-center">
+                <span>UPTIME:</span>
+                <span id="uptime-val" class="text-white">--:--:--</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="pt-20 px-6 pb-6 grid grid-cols-12 gap-6 h-screen">
+
+        <!-- Sidebar / Financial HUD -->
+        <aside class="col-span-3 flex flex-col gap-6 h-full overflow-hidden">
+            <!-- Cost Module -->
+            <div class="bg-charcoal border border-gray-800 p-5 rounded-lg">
+                <h2 class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Financial Impact</h2>
+                <div class="flex flex-col gap-4">
+                    <div>
+                        <div class="text-3xl font-bold text-white">$<span id="total-cost">0.0000</span></div>
+                        <div class="text-[10px] text-gray-500 mt-1">TOTAL SPEND (SESSION)</div>
+                    </div>
+                    <div class="h-px bg-gray-800 w-full"></div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <div class="text-lg font-bold text-neon" id="avg-cost">0.02¢</div>
+                            <div class="text-[10px] text-gray-500">AVG / TASK</div>
+                        </div>
+                        <div>
+                            <div class="text-lg font-bold text-neon" id="total-tokens">0</div>
+                            <div class="text-[10px] text-gray-500">TOKENS PROCESSED</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Vitals (Replaced Performance Sparklines) -->
+            <div class="bg-charcoal border border-gray-800 p-5 rounded-lg flex-1">
+                <h2 class="text-xs text-gray-500 mb-4 uppercase tracking-widest">System Vitals</h2>
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex justify-between mb-1 text-xs">
+                            <span class="text-gray-400">MEMORY</span>
+                            <span class="text-success" id="mem-val">-- MB</span>
+                        </div>
+                        <div class="w-full bg-black/50 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-success h-1.5 rounded-full" style="width: 45%" id="mem-bar"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between mb-1 text-xs">
+                            <span class="text-gray-400">CPU LOAD</span>
+                            <span class="text-warning" id="load-val">--</span>
+                        </div>
+                        <div class="w-full bg-black/50 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-warning h-1.5 rounded-full" style="width: 20%" id="cpu-bar"></div>
+                        </div>
+                    </div>
+                    <div class="pt-4 border-t border-gray-800 mt-4">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs text-gray-500">NEXT HEARTBEAT (SYNC)</span>
+                            <span class="text-neon font-bold font-mono text-lg" id="heartbeat-timer">00:60</span>
+                        </div>
+                        <div class="flex justify-between items-center mt-4">
+                            <span class="text-xs text-gray-500">ACTIVE PROVIDERS</span>
+                            <div class="flex gap-2">
+                                <span
+                                    class="w-3 h-3 rounded-full bg-neon flex items-center justify-center text-[6px] text-black font-bold"
+                                    title="Gemini">G</span>
+                                <span
+                                    class="w-3 h-3 rounded-full bg-amber-500 flex items-center justify-center text-[6px] text-black font-bold"
+                                    title="Claude">C</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Feed: The Reasoning Stream -->
+        <section
+            class="col-span-6 flex flex-col h-full bg-charcoal border border-gray-800 rounded-lg overflow-hidden relative">
+            <div
+                class="absolute top-0 w-full bg-gradient-to-b from-charcoal z-10 p-4 border-b border-gray-800/50 backdrop-blur-sm flex justify-between items-center">
+                <h2 class="text-xs text-neon uppercase tracking-widest flex items-center gap-2">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                    Live Trace Stream
+                </h2>
+                <div class="flex gap-2 text-[10px]">
+                    <span class="px-2 py-0.5 rounded bg-neon/10 text-neon border border-neon/20">GEMINI</span>
+                    <span
+                        class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">CLAUDE</span>
+                </div>
+            </div>
+
+            <div id="trace-feed" class="flex-1 overflow-y-auto pt-16 pb-4 px-4 space-y-4 scroll-hide text-xs">
+                <!-- Trace Items injected here -->
+                <div class="text-center text-gray-600 mt-20">Waiting for agent activity...</div>
+            </div>
+        </section>
+
+        <!-- Right Panel: Trace Details & Performance -->
+        <aside class="col-span-3 flex flex-col gap-6 h-full">
+            <div class="bg-charcoal border border-gray-800 p-5 rounded-lg h-2/3 overflow-y-auto">
+                <h2 class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Selected Trace Details</h2>
+                <div id="trace-details" class="text-xs text-gray-400 font-mono whitespace-pre-wrap">
+                    Click a trace to inspect steps...
+                </div>
+            </div>
+            <div class="bg-charcoal border border-gray-800 p-5 rounded-lg h-1/3 flex flex-col">
+                <h2 class="text-xs text-gray-500 mb-2 uppercase tracking-widest">Throughput (TPS)</h2>
+                <div class="flex-1 bg-black/50 rounded flex items-end gap-[1px] px-1 pb-1 overflow-hidden"
+                    id="tps-chart">
+                    <!-- Bars injected via JS -->
+                </div>
+                <h2 class="text-xs text-gray-500 mt-4 mb-2 uppercase tracking-widest">Latency</h2>
+                <div class="flex-1 bg-black/50 rounded flex items-end gap-[1px] px-1 pb-1 overflow-hidden"
+                    id="lat-chart">
+                    <!-- Bars injected via JS -->
+                </div>
+            </div>
+        </aside>
+
+    </main>
+
+    <script>
+        const formatTime = (iso) => new Date(iso).toLocaleTimeString([], { hour12: false });
+        const formatCost = (usd) => '$' + (usd || 0).toFixed(6);
+        let nextHeartbeat = Date.now() + 60000; // Initial guess
+
+        // Heartbeat Timer Loop (Syncs to nearest minute)
+        setInterval(() => {
+            const now = Date.now();
+            const msCurrentMinute = now % 60000;
+            const msUntilNext = 60000 - msCurrentMinute;
+            const secs = Math.ceil(msUntilNext / 1000);
+            document.getElementById('heartbeat-timer').textContent = `00:${secs.toString().padStart(2, '0')}`;
+        }, 1000);
+
+        async function fetchStats() {
+            try {
+                // 1. Fetch System Status
+                const statusRes = await fetch('/api/status');
+                const status = await statusRes.json();
+                document.getElementById('uptime-val').textContent = Math.floor(status.system.uptime / 60) + 'm';
+                const memMB = Math.round(status.system.memory.rss / 1024 / 1024);
+                document.getElementById('mem-val').textContent = memMB + ' MB';
+
+                // Load Avg (1m)
+                const load = status.system.loadavg[0];
+                document.getElementById('load-val').textContent = load.toFixed(2);
+
+                // Visual bars
+                const memPercent = Math.min(100, (memMB / 4096) * 100); // 4GB assumption scale
+                document.getElementById('mem-bar').style.width = memPercent + '%';
+
+                const cpuPercent = Math.min(100, load * 20); // 1.0 load = ~20% 
+                document.getElementById('cpu-bar').style.width = cpuPercent + '%';
+
+
+                // 2. Fetch Traces
+                const tracesRes = await fetch('/api/traces');
+                const traces = await tracesRes.json();
+
+                renderFinancials(traces);
+                renderFeed(traces);
+                renderCharts(traces);
+
+            } catch (err) {
+                console.error("Dashboard poll failed", err);
+            }
+        }
+
+        function renderFinancials(traces) {
+            let totalCost = 0;
+            let totalTokens = 0;
+            traces.forEach(t => {
+                totalCost += (t.total_cost_usd || 0);
+                totalTokens += (t.input_tokens + t.output_tokens);
+            });
+
+            document.getElementById('total-cost').textContent = totalCost.toFixed(4);
+            document.getElementById('total-tokens').textContent = totalTokens.toLocaleString();
+
+            const avg = traces.length ? (totalCost / traces.length * 100) : 0; // in cents
+            document.getElementById('avg-cost').textContent = avg.toFixed(3) + '¢';
+        }
+
+        function renderFeed(traces) {
+            const feed = document.getElementById('trace-feed');
+            if (feed.childElementCount !== traces.length && traces.length > 0) {
+                feed.innerHTML = '';
+                traces.forEach(trace => {
+                    const el = document.createElement('div');
+                    el.className = 'bg-black/30 p-3 rounded border border-gray-800 hover:border-neon cursor-pointer transition-colors';
+                    el.onclick = () => loadTraceDetails(trace.id);
+
+                    const statusColor = trace.status === 'success' ? 'text-success' : 'text-danger';
+                    // Provider coloring
+                    const isClaude = trace.provider === 'claude';
+                    const providerColor = isClaude ? 'text-amber-500' : 'text-neon';
+                    const hoverClass = isClaude ? 'hover:border-amber-500' : 'hover:border-neon';
+                    el.classList.add(hoverClass);
+
+                    el.innerHTML = `
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold ${providerColor}">${trace.provider.toUpperCase()}</span>
+                            <span class="text-[10px] text-gray-500">${formatTime(trace.created_at)}</span>
+                        </div>
+                        <div class="text-gray-400 mb-2 truncate">${trace.model_name || 'unknown-model'}</div>
+                        <div class="flex justify-between items-end">
+                            <div class="flex gap-3 text-[10px] text-gray-500">
+                                <span>${trace.latency_ms}ms</span>
+                                <span>${trace.input_tokens + trace.output_tokens} toks</span>
+                            </div>
+                            <span class="text-[10px] ${statusColor}">${trace.status.toUpperCase()}</span>
+                        </div>
+                    `;
+                    feed.appendChild(el);
+                });
+            }
+        }
+
+        async function loadTraceDetails(id) {
+            const container = document.getElementById('trace-details');
+            container.innerHTML = 'Loading steps...';
+            try {
+                const res = await fetch(`/api/traces/${id}`);
+                const steps = await res.json();
+
+                if (steps.length === 0) {
+                    container.innerHTML = '<span class="text-gray-600">No detailed steps recorded for this trace.</span>';
+                    return;
+                }
+
+                container.innerHTML = steps.map(step => {
+                    let color = 'text-gray-300';
+                    let label = 'INFO';
+                    if (step.step_type === 'tool_call') { color = 'text-warning'; label = 'CALL'; }
+                    if (step.step_type === 'tool_result') { color = 'text-success'; label = 'RET'; }
+                    if (step.step_type === 'thought') { color = 'text-blue-400'; label = 'THINK'; }
+
+                    // Parse content if JSON
+                    let displayContent = step.content;
+                    try {
+                        const json = JSON.parse(step.content);
+                        displayContent = JSON.stringify(json, null, 2);
+                    } catch { }
+
+                    return `
+                        <div class="mb-4 border-l-2 border-gray-800 pl-3">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="text-[10px] font-bold ${color}">${label}</span>
+                                <span class="text-[10px] text-gray-600">${formatTime(step.timestamp)}</span>
+                            </div>
+                            <div class="overflow-x-auto text-[10px] text-gray-400">${displayContent}</div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                container.innerHTML = 'Error loading details.';
+            }
+        }
+
+        function renderCharts(traces) {
+            // Mock charts for now - random bars
+            const chart = (id, colorClass) => {
+                const el = document.getElementById(id);
+                if (el.childElementCount === 0) {
+                    for (let i = 0; i < 30; i++) {
+                        const bar = document.createElement('div');
+                        const h = Math.floor(Math.random() * 100) + '%';
+                        bar.className = `flex-1 rounded-t-sm opacity-50 ${colorClass}`;
+                        bar.style.height = h;
+                        bar.style.backgroundColor = colorClass.includes('neon') ? '#00f2ea' : '#ffb700';
+                        el.appendChild(bar);
+                    }
+                }
+            };
+            chart('tps-chart', 'bg-neon');
+            chart('lat-chart', 'bg-warning');
+        }
+
+        // Poll every 3 seconds
+        fetchStats();
+        setInterval(fetchStats, 3000);
+
+    </script>
+</body>
+
+</html>

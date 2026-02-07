@@ -4,6 +4,7 @@
  */
 
 import { spawn, execSync } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -345,17 +346,68 @@ export class ClaudeProvider extends BaseModelProvider {
             jsonLine = lines[lines.length - 1];
           }
 
-          const output: AgentResponse = JSON.parse(jsonLine);
+          const output = JSON.parse(jsonLine); // Type is loosely typed from JSON.parse
+
+          let agentResponse: AgentResponse;
+
+          // Normalize output to AgentResponse
+          if (output.status && (output.result !== undefined || output.error !== undefined)) {
+            agentResponse = output as AgentResponse;
+          } else {
+            // Fallback for older container versions
+            agentResponse = {
+              status: 'success',
+              result: output.output || output.result || null,
+              newSessionId: output.sessionId,
+              metrics: output.metrics
+            };
+          }
+
+          // --- NanoWatcher Instrumentation ---
+          if (agentResponse.metrics) {
+            // Rough Cost Calculation (Claude 3.5 Sonnet pricing)
+            // Input: $3.00 / 1M tokens
+            // Output: $15.00 / 1M tokens
+            const inputCost = (agentResponse.metrics.inputTokens / 1_000_000) * 3.00;
+            const outputCost = (agentResponse.metrics.outputTokens / 1_000_000) * 15.00;
+            const totalCost = inputCost + outputCost;
+
+            agentResponse.metrics.latencyMs = duration; // Use provider-measured latency
+
+            try {
+              const traceId = crypto.randomUUID();
+              import('../db.js').then(db => {
+                db.logAgentTrace({
+                  id: traceId,
+                  session_id: agentResponse.newSessionId,
+                  chat_jid: request.chatJid,
+                  provider: 'claude',
+                  model_name: 'claude-3-5-sonnet', // Assumed default
+                  input_tokens: agentResponse.metrics!.inputTokens,
+                  output_tokens: agentResponse.metrics!.outputTokens,
+                  cached_content_tokens: 0, // Not available in estimation
+                  latency_ms: duration,
+                  total_cost_usd: totalCost,
+                  status: agentResponse.status,
+                  error: agentResponse.error,
+                  created_at: new Date().toISOString()
+                }, []); // No detailed steps available from SDK stream yet
+              });
+            } catch (err) {
+              logger.error({ err }, 'Failed to log agent trace');
+            }
+          }
+          // -----------------------------------
 
           logger.info({
             group: group.name,
             provider: 'claude',
             duration,
-            status: output.status,
-            hasResult: !!output.result
+            status: agentResponse.status,
+            hasResult: !!agentResponse.result
           }, 'Claude agent completed');
 
-          resolve(output);
+          resolve(agentResponse);
         } catch (err) {
           logger.error({
             group: group.name,

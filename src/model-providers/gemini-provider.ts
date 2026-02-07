@@ -1,6 +1,7 @@
 import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import {
   BaseModelProvider,
   AgentRequest,
@@ -320,17 +321,62 @@ export class GeminiProvider extends BaseModelProvider {
           // The old provider expected { output: string, sessionId: string }
           // The new unified AgentResponse expects { status, result, error, newSessionId }
 
+          let agentResponse: AgentResponse;
+
           // If the container returns the standardized format directly:
           if (output.status && (output.result !== undefined || output.error !== undefined)) {
-            resolve(output as AgentResponse);
+            agentResponse = output as AgentResponse; // Already in format
           } else {
-            // Only if using an older image that returns the old format
-            resolve({
-              status: 'success',
-              result: output.output || null,
-              newSessionId: output.sessionId
-            });
+            // Adapt older or different container output
+            agentResponse = {
+              status: output.status || 'success',
+              result: output.output || output.result || null,
+              newSessionId: output.sessionId,
+              error: output.error,
+              metrics: output.metrics,
+              trace: output.trace
+            };
           }
+
+          // --- NanoWatcher Instrumentation ---
+          if (agentResponse.metrics) {
+            // Rough Cost Calculation (Gemini Flash 2.0 pricing)
+            // ~$0.10 / 1M input tokens
+            // ~$0.40 / 1M output tokens
+            const inputCost = (agentResponse.metrics.inputTokens / 1_000_000) * 0.10;
+            const outputCost = (agentResponse.metrics.outputTokens / 1_000_000) * 0.40;
+            const totalCost = inputCost + outputCost;
+
+            try {
+              const traceId = crypto.randomUUID();
+              import('../db.js').then(db => {
+                db.logAgentTrace({
+                  id: traceId,
+                  session_id: agentResponse.newSessionId,
+                  chat_jid: request.chatJid,
+                  provider: 'gemini',
+                  model_name: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+                  input_tokens: agentResponse.metrics!.inputTokens,
+                  output_tokens: agentResponse.metrics!.outputTokens,
+                  cached_content_tokens: agentResponse.metrics!.cachedContentTokens || 0,
+                  latency_ms: agentResponse.metrics!.latencyMs,
+                  total_cost_usd: totalCost,
+                  status: agentResponse.status,
+                  error: agentResponse.error,
+                  created_at: new Date().toISOString()
+                }, (agentResponse.trace || []).map(step => ({
+                  step_type: step.type,
+                  content: step.content,
+                  timestamp: step.timestamp
+                })));
+              });
+            } catch (err) {
+              logger.error({ err }, 'Failed to log agent trace');
+            }
+          }
+          // -----------------------------------
+
+          resolve(agentResponse);
 
           logger.info({
             group: group.name,

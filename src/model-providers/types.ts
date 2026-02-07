@@ -21,6 +21,17 @@ export interface AgentResponse {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  metrics?: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedContentTokens?: number;
+    latencyMs: number;
+  };
+  trace?: Array<{
+    type: 'thought' | 'tool_call' | 'tool_result';
+    content: string;
+    timestamp: string;
+  }>;
 }
 
 export interface ModelProviderContext {

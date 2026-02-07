@@ -23,6 +23,11 @@ interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  metrics?: {
+    inputTokens: number;
+    outputTokens: number;
+    latencyMs: number;
+  };
 }
 
 interface SessionEntry {
@@ -340,10 +345,23 @@ async function main(): Promise<void> {
     }
 
     log('Agent completed successfully');
+
+    // Simple heuristic token counting (since SDK hides usage)
+    // 1 token ~= 4 chars
+    const inputChars = input.prompt.length;
+    const outputChars = result ? result.length : 0;
+    const estimatedInputTokens = Math.ceil(inputChars / 4);
+    const estimatedOutputTokens = Math.ceil(outputChars / 4);
+
     writeOutput({
       status: 'success',
       result,
-      newSessionId
+      newSessionId,
+      metrics: {
+        inputTokens: estimatedInputTokens,
+        outputTokens: estimatedOutputTokens,
+        latencyMs: 0 // Will be calculated by provider
+      }
     });
 
   } catch (err) {

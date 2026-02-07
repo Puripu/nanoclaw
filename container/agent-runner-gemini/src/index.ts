@@ -49,6 +49,17 @@ interface ContainerOutput {
   output: string | null;
   sessionId?: string;
   error?: string;
+  metrics?: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedContentTokens?: number;
+    latencyMs: number;
+  };
+  trace?: Array<{
+    type: 'thought' | 'tool_call' | 'tool_result';
+    content: string;
+    timestamp: string;
+  }>;
 }
 
 interface ConversationMessage {
@@ -779,8 +790,24 @@ async function main(): Promise<void> {
       history: history.slice(0, -1) as Content[] // Exclude the last message since we'll send it
     });
 
+    // Metrics for observability
+    const metrics = {
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: 0
+    };
+    const startTime = Date.now();
+    const traceSteps: NonNullable<ContainerOutput['trace']> = [];
+
     // Send message and handle tool calls
     let response = await withRetry(() => chat.sendMessage(prompt));
+
+    // Aggregate initial tokens
+    if (response.response.usageMetadata) {
+      metrics.inputTokens += response.response.usageMetadata.promptTokenCount || 0;
+      metrics.outputTokens += response.response.usageMetadata.candidatesTokenCount || 0;
+    }
+
     let result = '';
     let iterations = 0;
     const maxIterations = 10;
@@ -812,6 +839,14 @@ async function main(): Promise<void> {
         for (const part of functionCalls) {
           if ('functionCall' in part && part.functionCall) {
             const fc = part.functionCall;
+            const toolCallRaw = JSON.stringify(fc.args);
+
+            traceSteps.push({
+              type: 'tool_call',
+              content: JSON.stringify({ name: fc.name, args: fc.args }),
+              timestamp: new Date().toISOString()
+            });
+
             log(`Tool: ${fc.name}`);
             const toolResult = await executeToolCall(
               fc.name,
@@ -819,6 +854,13 @@ async function main(): Promise<void> {
               input.chatJid,
               input.groupFolder
             );
+
+            traceSteps.push({
+              type: 'tool_result',
+              content: JSON.stringify({ name: fc.name, result: toolResult.slice(0, 1000) }), // Truncate for trace
+              timestamp: new Date().toISOString()
+            });
+
             toolResults.push({
               functionResponse: {
                 name: fc.name,
@@ -830,10 +872,25 @@ async function main(): Promise<void> {
 
         // Send tool results back
         response = await withRetry(() => chat.sendMessage(toolResults));
+
+        // Aggregate tool turn tokens
+        if (response.response.usageMetadata) {
+          metrics.inputTokens += response.response.usageMetadata.promptTokenCount || 0;
+          metrics.outputTokens += response.response.usageMetadata.candidatesTokenCount || 0;
+        }
+
       } else {
         // No function calls, get text response
         const textParts = parts.filter(p => 'text' in p);
         result = textParts.map(p => 'text' in p ? p.text : '').join('');
+
+        if (result) {
+          traceSteps.push({
+            type: 'thought',
+            content: result,
+            timestamp: new Date().toISOString()
+          });
+        }
         break;
       }
     }
@@ -842,11 +899,15 @@ async function main(): Promise<void> {
     const finalHistory = await chat.getHistory();
     saveSession(input.groupFolder, finalHistory as ConversationMessage[]);
 
+    metrics.latencyMs = Date.now() - startTime;
+
     log('Gemini agent completed successfully');
     writeOutput({
       status: 'success',
       output: result || null,
-      sessionId: `gemini-${input.groupFolder}`
+      sessionId: `gemini-${input.groupFolder}`,
+      metrics,
+      trace: traceSteps
     });
 
     if (browserContext) {

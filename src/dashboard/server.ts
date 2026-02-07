@@ -99,6 +99,33 @@ export function startDashboard(port: number = 3000) {
         res.json(status);
     });
 
+    // NanoWatcher API: Get recent agent traces
+    app.get('/api/traces', async (req, res) => {
+        try {
+            const db = await import('../db.js');
+            const traces = db.getRecentTraces(20);
+
+            // Enrich with steps if requested (though simpler to fetch separately for detail view)
+            // returning just the summary list for sparklines/feed primarily
+            res.json(traces);
+        } catch (err) {
+            logger.error({ err }, 'Failed to fetch traces');
+            res.status(500).json({ error: 'Failed to fetch traces' });
+        }
+    });
+
+    // NanoWatcher API: Get details for a specific trace
+    app.get('/api/traces/:id', async (req, res) => {
+        try {
+            const db = await import('../db.js');
+            const steps = db.getTraceSteps(req.params.id);
+            res.json(steps);
+        } catch (err) {
+            logger.error({ err }, 'Failed to fetch trace steps');
+            res.status(500).json({ error: 'Failed to fetch trace steps' });
+        }
+    });
+
     app.listen(port, () => {
         logger.info({ port }, 'Dashboard server started');
     });

@@ -69,6 +69,37 @@ export function initDatabase(): void {
   try {
     db.exec(`ALTER TABLE scheduled_tasks ADD COLUMN context_mode TEXT DEFAULT 'isolated'`);
   } catch { /* column already exists */ }
+
+  // NanoWatcher Observability Tables
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_traces (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      chat_jid TEXT,
+      provider TEXT,
+      model_name TEXT,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      cached_content_tokens INTEGER DEFAULT 0,
+      latency_ms INTEGER DEFAULT 0,
+      total_cost_usd REAL DEFAULT 0,
+      status TEXT, -- 'success' | 'error'
+      error TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_traces_created_at ON agent_traces(created_at);
+    CREATE INDEX IF NOT EXISTS idx_traces_session ON agent_traces(session_id);
+
+    CREATE TABLE IF NOT EXISTS agent_trace_steps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trace_id TEXT NOT NULL,
+      step_type TEXT, -- 'thought' | 'tool_call' | 'tool_result'
+      content TEXT,
+      timestamp TEXT NOT NULL,
+      FOREIGN KEY (trace_id) REFERENCES agent_traces(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_trace_steps ON agent_trace_steps(trace_id);
+  `);
 }
 
 /**
@@ -281,4 +312,72 @@ export function getTaskRunLogs(taskId: string, limit = 10): TaskRunLog[] {
     ORDER BY run_at DESC
     LIMIT ?
   `).all(taskId, limit) as TaskRunLog[];
+}
+
+export interface AgentTrace {
+  id: string;
+  session_id?: string;
+  chat_jid?: string;
+  provider: string;
+  model_name?: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached_content_tokens: number;
+  latency_ms: number;
+  total_cost_usd: number;
+  status: string;
+  error?: string;
+  created_at: string;
+}
+
+export interface AgentTraceStep {
+  id?: number;
+  trace_id?: string;
+  step_type: 'thought' | 'tool_call' | 'tool_result';
+  content: string;
+  timestamp: string;
+}
+
+const insertTrace = (trace: AgentTrace) => {
+  db.prepare(`
+    INSERT INTO agent_traces (
+      id, session_id, chat_jid, provider, model_name,
+      input_tokens, output_tokens, cached_content_tokens,
+      latency_ms, total_cost_usd, status, error, created_at
+    ) VALUES (
+      @id, @session_id, @chat_jid, @provider, @model_name,
+      @input_tokens, @output_tokens, @cached_content_tokens,
+      @latency_ms, @total_cost_usd, @status, @error, @created_at
+    )
+  `).run(trace);
+};
+
+const insertTraceSteps = (traceId: string, steps: AgentTraceStep[]) => {
+  const stmt = db.prepare(`
+    INSERT INTO agent_trace_steps (trace_id, step_type, content, timestamp)
+    VALUES (?, ?, ?, ?)
+  `);
+  for (const step of steps) {
+    stmt.run(traceId, step.step_type, step.content, step.timestamp);
+  }
+};
+
+export function logAgentTrace(trace: AgentTrace, steps: AgentTraceStep[]): void {
+  const transaction = db.transaction(() => {
+    insertTrace(trace);
+    insertTraceSteps(trace.id, steps);
+  });
+  transaction();
+}
+
+export function getRecentTraces(limit = 50): AgentTrace[] {
+  return db.prepare(`
+    SELECT * FROM agent_traces ORDER BY created_at DESC LIMIT ?
+  `).all(limit) as AgentTrace[];
+}
+
+export function getTraceSteps(traceId: string): AgentTraceStep[] {
+  return db.prepare(`
+    SELECT * FROM agent_trace_steps WHERE trace_id = ? ORDER BY timestamp ASC
+  `).all(traceId) as AgentTraceStep[];
 }
