@@ -52,7 +52,7 @@
         <div class="flex items-center gap-3">
             <div class="w-3 h-3 rounded-full bg-neon animate-pulse"></div>
             <h1 class="font-bold tracking-wider text-neon">NANOWATCHER <span
-                    class="text-xs text-gray-500 font-normal">v1.1</span></h1>
+                    class="text-xs text-gray-500 font-normal">v1.2</span></h1>
         </div>
         <div class="flex gap-6 text-xs text-gray-400">
             <div class="flex gap-2 items-center">
@@ -92,10 +92,10 @@
                 </div>
             </div>
 
-            <!-- System Vitals (Replaced Performance Sparklines) -->
-            <div class="bg-charcoal border border-gray-800 p-5 rounded-lg flex-1">
+            <!-- System Vitals & Heartbeats -->
+            <div class="bg-charcoal border border-gray-800 p-5 rounded-lg flex-1 flex flex-col">
                 <h2 class="text-xs text-gray-500 mb-4 uppercase tracking-widest">System Vitals</h2>
-                <div class="space-y-4">
+                <div class="space-y-4 mb-6">
                     <div>
                         <div class="flex justify-between mb-1 text-xs">
                             <span class="text-gray-400">MEMORY</span>
@@ -114,28 +114,32 @@
                             <div class="bg-warning h-1.5 rounded-full" style="width: 20%" id="cpu-bar"></div>
                         </div>
                     </div>
-                    <div class="pt-4 border-t border-gray-800 mt-4">
-                        <div class="flex justify-between items-center">
-                            <span class="text-xs text-gray-500">NEXT HEARTBEAT (SYNC)</span>
-                            <span class="text-neon font-bold font-mono text-lg" id="heartbeat-timer">00:60</span>
-                        </div>
-                        <div class="flex justify-between items-center mt-4">
-                            <span class="text-xs text-gray-500">ACTIVE PROVIDERS</span>
-                            <div class="flex gap-2">
-                                <span
-                                    class="w-3 h-3 rounded-full bg-neon flex items-center justify-center text-[6px] text-black font-bold"
-                                    title="Gemini">G</span>
-                                <span
-                                    class="w-3 h-3 rounded-full bg-amber-500 flex items-center justify-center text-[6px] text-black font-bold"
-                                    title="Claude">C</span>
-                            </div>
-                        </div>
-                    </div>
                 </div>
+
+                <div class="h-px bg-gray-800 w-full mb-6"></div>
+
+                <h2 class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Provider Heartbeats</h2>
+                <div class="flex-1 overflow-y-auto pr-1">
+                    <table class="w-full text-xs text-left">
+                        <thead>
+                            <tr class="text-gray-500 border-b border-gray-800">
+                                <th class="pb-2 pl-1">GRP</th>
+                                <th class="pb-2 text-right">NEXT RUN</th>
+                            </tr>
+                        </thead>
+                        <tbody id="heartbeat-table" class="divide-y divide-gray-800/50">
+                            <!-- Injected rows -->
+                            <tr>
+                                <td colspan="2" class="py-2 text-center text-gray-600">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
             </div>
         </aside>
 
-        <!-- Main Feed: The Reasoning Stream -->
+        <!-- Main Feed -->
         <section
             class="col-span-6 flex flex-col h-full bg-charcoal border border-gray-800 rounded-lg overflow-hidden relative">
             <div
@@ -187,15 +191,37 @@
     <script>
         const formatTime = (iso) => new Date(iso).toLocaleTimeString([], { hour12: false });
         const formatCost = (usd) => '$' + (usd || 0).toFixed(6);
-        let nextHeartbeat = Date.now() + 60000; // Initial guess
 
-        // Heartbeat Timer Loop (Syncs to nearest minute)
+        // Store next run times for the timer loop
+        let heartbeatTargets = {};
+
+        // Heartbeat Timer Loop (Updates every second)
         setInterval(() => {
             const now = Date.now();
-            const msCurrentMinute = now % 60000;
-            const msUntilNext = 60000 - msCurrentMinute;
-            const secs = Math.ceil(msUntilNext / 1000);
-            document.getElementById('heartbeat-timer').textContent = `00:${secs.toString().padStart(2, '0')}`;
+            Object.keys(heartbeatTargets).forEach(group => {
+                const targetTime = heartbeatTargets[group];
+                if (!targetTime) return;
+
+                const el = document.getElementById(`timer-${group}`);
+                if (el) {
+                    if (targetTime === 'paused') {
+                        el.textContent = 'PAUSED';
+                        el.className = 'text-warning font-mono';
+                        return;
+                    }
+
+                    const diff = targetTime - now;
+                    if (diff <= 0) {
+                        el.textContent = "Running...";
+                        el.className = "text-neon animate-pulse";
+                    } else {
+                        const mins = Math.floor(diff / 60000);
+                        const secs = Math.ceil((diff % 60000) / 1000);
+                        el.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+                        el.className = "text-white font-mono";
+                    }
+                }
+            });
         }, 1000);
 
         async function fetchStats() {
@@ -212,12 +238,15 @@
                 document.getElementById('load-val').textContent = load.toFixed(2);
 
                 // Visual bars
-                const memPercent = Math.min(100, (memMB / 4096) * 100); // 4GB assumption scale
+                const memPercent = Math.min(100, (memMB / 4096) * 100);
                 document.getElementById('mem-bar').style.width = memPercent + '%';
-
-                const cpuPercent = Math.min(100, load * 20); // 1.0 load = ~20% 
+                const cpuPercent = Math.min(100, load * 20);
                 document.getElementById('cpu-bar').style.width = cpuPercent + '%';
 
+                // Render Heartbeats
+                if (status.application.heartbeats) {
+                    renderHeartbeats(status.application.heartbeats);
+                }
 
                 // 2. Fetch Traces
                 const tracesRes = await fetch('/api/traces');
@@ -229,6 +258,56 @@
 
             } catch (err) {
                 console.error("Dashboard poll failed", err);
+            }
+        }
+
+        function renderHeartbeats(heartbeats) {
+            const tbody = document.getElementById('heartbeat-table');
+            // Re-render rows if needed (can be optimized but fine for 3 items)
+            // We use IDs for the timer cells to update them efficiently via setInterval
+
+            // Just update `heartbeatTargets` if rows exist, else build rows
+            if (tbody.childElementCount !== Object.keys(heartbeats).length) {
+                tbody.innerHTML = '';
+                Object.entries(heartbeats).forEach(([group, data]) => {
+                    const nextRun = data.task ? new Date(data.task.next_run).getTime() : null;
+                    const isPaused = data.task?.status === 'paused';
+                    heartbeatTargets[group] = isPaused ? 'paused' : nextRun;
+
+                    const row = document.createElement('tr');
+
+                    // Provider Icon/Name
+                    let iconColor = 'bg-gray-500';
+                    let label = group.toUpperCase();
+                    if (group === 'telegram') iconColor = 'bg-blue-500';
+                    if (group === 'discord') iconColor = 'bg-indigo-500';
+                    if (group === 'main') { iconColor = 'bg-green-500'; label = 'WHATSAPP'; }
+
+                    row.innerHTML = `
+                        <td class="py-2 pl-1 flex items-center gap-2">
+                             <span class="w-1.5 h-1.5 rounded-full ${iconColor}"></span>
+                             <span class="text-gray-400 font-bold">${label}</span>
+                        </td>
+                        <td class="py-2 text-right">
+                             <span id="timer-${group}" class="${isPaused ? 'text-warning' : 'text-white'} font-mono">${isPaused ? 'PAUSED' : '--:--'}</span>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } else {
+                // Just update targets for the timer loop
+                Object.entries(heartbeats).forEach(([group, data]) => {
+                    const nextRun = data.task ? new Date(data.task.next_run).getTime() : null;
+                    const isPaused = data.task?.status === 'paused';
+                    heartbeatTargets[group] = isPaused ? 'paused' : nextRun;
+
+                    // Direct update for simple status change
+                    const el = document.getElementById(`timer-${group}`);
+                    if (el && isPaused) {
+                        el.textContent = 'PAUSED';
+                        el.className = 'text-warning font-mono';
+                    }
+                });
             }
         }
 
@@ -290,7 +369,7 @@
                 const steps = await res.json();
 
                 if (steps.length === 0) {
-                    container.innerHTML = '<span class="text-gray-600">No detailed steps recorded for this trace.</span>';
+                    container.innerHTML = '<span class="text-gray-600">No detailed steps recorded.</span>';
                     return;
                 }
 
@@ -324,7 +403,6 @@
         }
 
         function renderCharts(traces) {
-            // Mock charts for now - random bars
             const chart = (id, colorClass) => {
                 const el = document.getElementById(id);
                 if (el.childElementCount === 0) {

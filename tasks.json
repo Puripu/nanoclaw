@@ -1,0 +1,17 @@
+[dotenv@17.2.4] injecting env (7) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[
+  {
+    "id": "task-1770166170319-wuqey7",
+    "group_folder": "main",
+    "chat_jid": "818011448758@s.whatsapp.net",
+    "prompt": "Search for and compile today's news update for Phil. Format as separate messages with ~5 sentences per article:\n\n1. 🌍 World News (2-4 articles with ~5 sentences each)\n2. 🇪🇺 EU News (2-4 articles with ~5 sentences each)  \n3. 🇧🇪 Belgian News (2-4 articles with ~5 sentences each)\n4. 🇯🇵 Japanese News (2-4 articles with ~5 sentences each)\n5. 💻 Tech News (1-2 stories)\n6. ✨ Good News (1-2 stories)\n\nFor each category, search for recent news from the last 24 hours. Write each article as a separate block with about 5 sentences of detail. Include source links at the end of each message. Keep messages concise and readable for WhatsApp. Do NOT use markdown headings (##), only use *bold*, _italic_, bullets, and code blocks.",
+    "schedule_type": "cron",
+    "schedule_value": "0 8 * * *",
+    "next_run": "2026-02-08T08:00:00.000Z",
+    "last_run": "2026-02-07T08:00:42.812Z",
+    "last_result": "Completed",
+    "status": "active",
+    "created_at": "2026-02-04T00:49:30.319Z",
+    "context_mode": "isolated"
+  }
+]

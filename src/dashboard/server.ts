@@ -60,16 +60,34 @@ export function startDashboard(port: number = 3000) {
         const uptime = process.uptime();
         const externalIp = await getExternalIp();
 
-        // Check key files
-        const heartbeatFile = path.join(GROUPS_DIR, 'telegram', 'HEARTBEAT.md');
+        // Check key files & Tasks
         const claudeFile = path.join(process.cwd(), 'CLAUDE.md');
+        const db = await import('../db.js');
+        const tasks = db.getAllTasks();
 
-        // Check Providers (Environment Variables)
+        // Check Providers
         const providers = {
             gemini: !!process.env.GEMINI_API_KEY || !!process.env.GOOGLE_API_KEY,
             claude: !!process.env.ANTHROPIC_API_KEY || !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
             telegram: !!process.env.TELEGRAM_BOT_TOKEN
         };
+
+        // Find Heartbeat tasks
+        const heartbeatTasks = tasks.filter(t => t.prompt.includes('Read HEARTBEAT.md'));
+
+        const groupHeartbeats: Record<string, any> = {};
+        ['telegram', 'discord', 'main'].forEach(group => {
+            const task = heartbeatTasks.find(t => t.group_folder === group);
+            const file = path.join(GROUPS_DIR, group, 'HEARTBEAT.md');
+            groupHeartbeats[group] = {
+                file: getFileStatus(file),
+                task: task ? {
+                    next_run: task.next_run,
+                    last_run: task.last_run,
+                    status: task.status
+                } : null
+            };
+        });
 
         const status = {
             system: {
@@ -89,9 +107,9 @@ export function startDashboard(port: number = 3000) {
                 assistantName: ASSISTANT_NAME,
                 providers: providers,
                 files: {
-                    heartbeat: getFileStatus(heartbeatFile),
                     claudeMd: getFileStatus(claudeFile)
-                }
+                },
+                heartbeats: groupHeartbeats
             },
             timestamp: new Date().toISOString()
         };
