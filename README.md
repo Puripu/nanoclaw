@@ -13,20 +13,19 @@ Based on [gavrielc/nanoclaw](https://github.com/gavrielc/nanoclaw) with signific
 
 ### Multi-Model Support
 - **Claude** - Best for coding and complex tasks (uses Claude Agent SDK)
-- **Gemini** - Faster and cheaper for general questions
+- **Gemini** - Faster and cheaper for general questions, now with full tool parity
 
 Switch models per-group with `/model claude` or `/model gemini`.
 
 ### Web Search
 - **Brave Search API** - Fast, structured search results (primary)
-- **Browser-based search** - Fallback using agent-browser
+- **Native search** - Reliable search for Gemini via Brave API
 
 ### Browser Automation
-Both agents can interact with web pages using `agent-browser`:
-- Navigate to URLs
-- Click elements
-- Fill forms
-- Take screenshots
+Both agents can interact with web pages:
+- **Claude**: Uses `agent-browser` CLI
+- **Gemini**: Uses native Playwright integration for high stability
+- Features: Navigate, click, fill forms, screenshots, and content reading
 
 ### Scheduled Tasks
 Create recurring or one-time tasks via the agent:
@@ -39,6 +38,13 @@ Each group runs in its own Docker container with:
 - Isolated filesystem (`/workspace/group/`)
 - Separate session storage
 - Per-group memory (`CLAUDE.md`)
+- **Monitoring**: Metrics (tokens/latency) and Traces (thought/tool steps) logged to SQLite
+
+### Media Management
+NYI
+- **Overseerr Integration**: Search and request movies/TV shows directly from the agent
+**Still having some issues to get this working correctly**
+
 
 ## Commands
 
@@ -93,6 +99,10 @@ CLAUDE_CODE_OAUTH_TOKEN=...          # Alternative Claude auth
 
 # Optional: Web Search
 BRAVE_API_KEY=...                    # For Brave Search API
+
+# Optional: Overseerr
+OVERSEER_URL=...                     # URL for Overseerr (e.g., https://overseerr.example.com)
+OVERSEER_API=...                     # API Key from Overseerr settings
 
 # Platforms (configure what you use)
 TELEGRAM_BOT_TOKEN=...               # From @BotFather

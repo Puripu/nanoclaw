@@ -75,10 +75,11 @@ A personal Claude assistant accessible via WhatsApp, with persistent memory per 
 |-----------|------------|---------|
 | WhatsApp Connection | Node.js (@whiskeysockets/baileys) | Connect to WhatsApp, send/receive messages |
 | Message Storage | SQLite (better-sqlite3) | Store messages for polling |
-| Container Runtime | Apple Container | Isolated Linux VMs for agent execution |
-| Agent | @anthropic-ai/claude-agent-sdk (0.2.29) | Run Claude with tools and MCP servers |
-| Browser Automation | agent-browser + Chromium | Web interaction and screenshots |
-| Runtime | Node.js 20+ | Host process for routing and scheduling |
+| Container Runtime | Docker / Linux VM | Isolated execution for agents |
+| Claude Agent | @anthropic-ai/claude-agent-sdk | Run Claude with full tool support |
+| Gemini Agent | Native Node.js + Playwright | Faster agent with tool parity and native browser support |
+| Browser Automation | Playwright / agent-browser | Web interaction and screenshots |
+| Runtime | Node.js 22+ | Host process for routing and scheduling |
 
 ---
 
@@ -228,12 +229,12 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
 ```
 The token can be extracted from `~/.claude/.credentials.json` if you're logged in to Claude Code.
 
-**Option 2: Pay-per-use API Key**
-```bash
-ANTHROPIC_API_KEY=sk-ant-api03-...
-```
+### Integrated Configuration
 
-Only the authentication variables (`CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY`) are extracted from `.env` and mounted into the container at `/workspace/env-dir/env`, then sourced by the entrypoint script. This ensures other environment variables in `.env` are not exposed to the agent. This workaround is needed because Apple Container loses `-e` environment variables when using `-i` (interactive mode with piped stdin).
+Configuration is consolidated in the root `.env` file. To ensure consistency and avoid exposing internal host variables:
+1.  **Mounting**: The host's `.env` file is mounted directly into the container at `/workspace/env-dir/env`.
+2.  **Sourcing**: The container's entrypoint script sources this file before starting the agent runner.
+3.  **Variables**: Only necessary variables (auth tokens, API keys, Overseerr config) are passed through the provider to the container.
 
 ### Changing the Assistant Name
 
@@ -578,7 +579,23 @@ WhatsApp messages could contain malicious instructions attempting to manipulate 
 - Only register trusted groups
 - Review additional directory mounts carefully
 - Review scheduled tasks periodically
-- Monitor logs for unusual activity
+## Observability (NanoWatcher)
+
+NanoClaw includes a monitoring system called **NanoWatcher** that tracks agent behavior and costs.
+
+### Trace Logging
+Every agent interaction is logged with a granular trace:
+- **Thought**: The agent's internal reasoning.
+- **Tool Call**: The specific tool and arguments used.
+- **Tool Result**: The raw output from the tool.
+
+### Metrics Tracking
+We track performance and cost metrics for every run:
+- **Token Usage**: Input, output, and cached tokens.
+- **Latency**: End-to-end execution time.
+- **Cost**: Estimated USD cost based on current provider pricing.
+
+Data is stored in the `agent_traces` and `agent_trace_steps` tables in SQLite, viewable via the IPC dashboard or raw queries.
 
 ### Credential Storage
 

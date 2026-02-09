@@ -4,7 +4,7 @@ Personal Claude assistant. See [README.md](README.md) for philosophy and setup. 
 
 ## Quick Context
 
-Single Node.js process that connects to WhatsApp, routes messages to Claude Agent SDK running in Apple Container (Linux VMs). Each group has isolated filesystem and memory.
+Single Node.js process that connects to WhatsApp/Telegram/Discord, routes messages to agents running in isolated Docker containers. Each group has isolated filesystem and memory.
 
 ## Key Files
 
@@ -12,7 +12,7 @@ Single Node.js process that connects to WhatsApp, routes messages to Claude Agen
 |------|---------|
 | `src/index.ts` | Main app: WhatsApp connection, message routing, IPC |
 | `src/config.ts` | Trigger pattern, paths, intervals |
-| `src/container-runner.ts` | Spawns agent containers with mounts |
+| `src/model-providers/gemini-provider.ts` | Gemini native runner with Playwright/Overseerr |
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
 | `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
@@ -35,8 +35,10 @@ npm run build        # Compile TypeScript
 ./container/build.sh # Rebuild agent container
 ```
 
-Service management:
+Service management (Linux):
 ```bash
-launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
-launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
+sudo systemctl start nanoclaw
+sudo systemctl stop nanoclaw
+sudo systemctl restart nanoclaw
+sudo journalctl -u nanoclaw -f # View logs
 ```

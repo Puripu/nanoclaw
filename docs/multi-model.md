@@ -7,7 +7,7 @@ NanoClaw supports multiple AI model providers, allowing you to choose between Cl
 | Provider | Best For | Cost | Notes |
 |----------|----------|------|-------|
 | **Claude** | Coding, complex reasoning, agentic tasks | Higher | Uses Claude Agent SDK with full tool support |
-| **Gemini** | General questions, fast responses | Lower (~40x cheaper) | Uses Google Generative AI with basic tools |
+| **Gemini** | Fast, reliable responses with tool parity | Lower (~40x cheaper) | Uses native Playwright and Google GenAI with tools |
 
 ## Quick Start
 
@@ -113,17 +113,19 @@ Message → Router → Provider Manager → Provider Factory
 
 ## Gemini Capabilities
 
-The Gemini agent has these tools:
-- `read_file` - Read file contents
-- `write_file` - Write content to files
-- `run_command` - Execute shell commands
-- `list_files` - List directory contents
-- `send_message` - Send messages to the chat
+The Gemini agent now has full tool parity with the system:
+- **`web_search`** - Search the web using Brave Search API (Native)
+- **`browser_*`** - Native Playwright support (Navigate, Click, Input, Screenshot, Content)
+- **`overseerr_*`** - Search and request media on Overseerr
+- **`read_file`** / **`write_file`** - Full filesystem access
+- **`run_command`** - Execute shell commands
+- **`list_files`** - List directory contents
+- **`send_message`** - Communicate with users from agents
 
-**Important Difference from Claude:**
-Gemini does **not** automatically index your codebase or load files into context. While Claude (via Claude Code) maintains an index of your project, Gemini only sees what you explicitly ask it to list or read. You may need to guide it: "List the files in this folder" or "Read package.json".
-
-Note: Gemini has fewer tools than Claude (no browser automation, no web search). For complex tasks requiring many tools, use Claude.
+**Comparison with Claude:**
+Gemini now matches Claude's toolset. The main difference is the underlying agent engine:
+- **Claude**: Uses the Anthropic Agent SDK which has powerful built-in reasoning for coding tasks and automatically handles complex multi-step tool usage.
+- **Gemini**: Uses a custom native runner optimized for speed and reliability, with direct integration for Playwright and Brave Search.
 
 ## Getting a Google API Key
 
