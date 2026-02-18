@@ -28,7 +28,9 @@ logs/
 # Allow the template file for others to use
 !.env.example
 
-# -----------------------------------------------------------------------
+# claude code stuff
+.claude
+-----------------------------------------------------------------------
 # HIDDEN FILE LOGIC (THE "DOT" RULES)
 # -----------------------------------------------------------------------
 # Step 1: Ignore all hidden files and folders by default
